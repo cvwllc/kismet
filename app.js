@@ -21,6 +21,18 @@ function boot() {
   populateDOB('cm-day', 'cm-year');
   populateDOB('si-day', 'si-year');
 
+  // Handle return from Stripe Checkout
+  const params = new URLSearchParams(location.search);
+  const paidSeed = params.get('paid') === '1' ? params.get('seed') : null;
+  if (paidSeed) {
+    try { localStorage.setItem(`kismet:member:${paidSeed}`, '1'); } catch(e){}
+    history.replaceState({}, '', location.pathname);
+  }
+  if (params.get('canceled') === '1') {
+    history.replaceState({}, '', location.pathname);
+    setTimeout(() => toast("No charge — you closed the window."), 400);
+  }
+
   // Restore session if we have one
   try {
     const raw = localStorage.getItem('kismet:state');
@@ -28,6 +40,11 @@ function boot() {
       const s = JSON.parse(raw);
       Object.assign(state, s);
       if (state.signature) {
+        // If we just returned from Stripe with a paid seed matching this signature, flip member on
+        if (paidSeed && String(state.signature.seed) === String(paidSeed)) {
+          state.isMember = true;
+          persist();
+        }
         // If they're a member, drop them in the dashboard. Otherwise re-show reading.
         if (state.isMember) renderDashboard();
         go(state.isMember ? 'dash' : 'reading');
@@ -331,18 +348,30 @@ function screenshotHint() {
   toast("Screenshot it · post it · tag a friend");
 }
 
-/* ----- PAYMENT (placeholder — wire to Stripe later) ---------------- */
+/* ----- PAYMENT (Stripe Checkout) ----------------------------------- */
 
-function completePayment() {
-  // ⟶ In production, this is where Stripe Checkout would redirect.
-  // For this build: simulate success and unlock.
-  state.isMember = true;
-  persist();
+async function completePayment() {
+  if (!state.signature) { flash("Get your Signature first."); return; }
   burst(event && event.target);
-  setTimeout(() => {
-    toast("You're in. Welcome.");
-    setTimeout(() => go('dash'), 900);
-  }, 200);
+  try {
+    const resp = await fetch('/api/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        signatureSeed: state.signature.seed,
+        name: state.name
+      })
+    });
+    if (!resp.ok) throw new Error('checkout failed');
+    const data = await resp.json();
+    if (data && data.url) {
+      window.location = data.url;
+    } else {
+      throw new Error('no url returned');
+    }
+  } catch (err) {
+    toast("Couldn't reach checkout — try again");
+  }
 }
 
 /* ----- SIGN IN ----------------------------------------------------- */
@@ -410,14 +439,3 @@ function burst(origin) {
 }
 
 document.addEventListener('DOMContentLoaded', boot);
-
-/* On payment success — persist membership against signature seed */
-(function(){
-  const orig = completePayment;
-  window.completePayment = function() {
-    orig();
-    if (state.signature) {
-      try { localStorage.setItem(`kismet:member:${state.signature.seed}`, '1'); } catch(e){}
-    }
-  };
-})();
