@@ -30,17 +30,34 @@ async function lookupIdentityByEmail(emailStr) {
     const trialingQuery = `metadata['email']:'${escapeQuery(emailStr)}' AND status:'trialing'`;
     result = await stripe.subscriptions.search({ query: trialingQuery, limit: 1 });
   }
+  let canonicalEmail = null;
   if (result.data.length === 0) {
     const customers = await stripe.customers.list({ email: emailStr, limit: 5 });
     for (const c of customers.data) {
       const subs = await stripe.subscriptions.list({ customer: c.id, status: 'all', limit: 5 });
       const active = subs.data.find(s => s.status === 'active' || s.status === 'trialing');
-      if (active) { result = { data: [active] }; break; }
+      if (active) {
+        result = { data: [active] };
+        canonicalEmail = c.email ? String(c.email).trim().toLowerCase() : null;
+        break;
+      }
     }
   }
   if (result.data.length === 0) return { member: false };
   const sub = result.data[0];
-  const m = sub.metadata || {};
+  const m = { ...(sub.metadata || {}) };
+
+  // If we resolved via customer-list, the customer's actual Stripe email is the canonical truth.
+  // Sync metadata so future lookups via metadata search find them too.
+  if (canonicalEmail && m.email && m.email.toLowerCase() !== canonicalEmail) {
+    try {
+      await stripe.subscriptions.update(sub.id, { metadata: { ...m, email: canonicalEmail } });
+      m.email = canonicalEmail;
+    } catch (e) {
+      console.error('auth-verify metadata email sync failed', e);
+    }
+  }
+
   return {
     member: true,
     status: sub.status,
@@ -51,7 +68,7 @@ async function lookupIdentityByEmail(emailStr) {
       month: m.month ? Number(m.month) : null,
       day: m.day ? Number(m.day) : null,
       year: m.year ? Number(m.year) : null,
-      email: m.email || emailStr
+      email: canonicalEmail || m.email || emailStr
     }
   };
 }

@@ -646,7 +646,9 @@ async function verifySignInCode() {
   const btn = event && event.target && event.target.closest('button');
   if (!_signInChallenge) { resetSignInToStep1(); return; }
   const codeInput = document.getElementById('si-code');
-  const code = (codeInput && codeInput.value || '').trim();
+  // Strip anything that isn't a digit so pasted "123-456" / "123 456" / "123,456" just works.
+  const code = (codeInput && codeInput.value || '').replace(/\D/g, '');
+  if (codeInput && codeInput.value !== code) codeInput.value = code;
   if (!/^\d{6}$/.test(code)) {
     flash("Enter the 6 digits from your email.");
     if (codeInput) codeInput.focus();

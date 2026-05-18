@@ -75,9 +75,18 @@ export function getClientIp(req) {
 
 // Convenience: enforce one or more limiters in sequence. Returns null on success,
 // or a {status, body} object you can return directly from the handler when limited.
+//
+// Fails OPEN if the rate limiter itself errors (e.g. Upstash outage). The cost of
+// briefly under-limiting is much smaller than locking out every legitimate customer.
 export async function enforce(limits) {
   for (const { limiter, key, message } of limits) {
-    const r = await limiter.limit(key);
+    let r;
+    try {
+      r = await limiter.limit(key);
+    } catch (err) {
+      console.error('rate-limit backend error — failing open', err);
+      continue;
+    }
     if (!r.success) {
       const retryAfter = Math.max(1, Math.ceil((r.reset - Date.now()) / 1000));
       return {
