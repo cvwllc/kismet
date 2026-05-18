@@ -4,6 +4,7 @@
 
 let state = {
   name: null, month: null, day: null, year: null,
+  email: null,
   signature: null,
   isMember: false
 };
@@ -16,10 +17,9 @@ function boot() {
   // Generate the starfield
   generateStars();
 
-  // Populate day/year dropdowns
+  // Populate day/year dropdowns (only the screens that still need them)
   populateDOB('in-day', 'in-year');
   populateDOB('cm-day', 'cm-year');
-  populateDOB('si-day', 'si-year');
 
   // Handle return from Stripe Checkout
   const params = new URLSearchParams(location.search);
@@ -436,6 +436,15 @@ async function shareCard() {
 
 async function completePayment() {
   if (!state.signature) { flash("Get your Signature first."); return; }
+  const emailInput = document.getElementById('pay-email');
+  const email = (emailInput && emailInput.value || '').trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    flash("Add the email you want to use to sign in.");
+    if (emailInput) { emailInput.focus(); emailInput.style.borderColor = 'rgba(229,121,153,.8)'; }
+    return;
+  }
+  state.email = email;
+  persist();
   burst(event && event.target);
   try {
     const resp = await fetch('/api/create-checkout-session', {
@@ -443,7 +452,11 @@ async function completePayment() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         signatureSeed: state.signature.seed,
-        name: state.name
+        name: state.signature.name,
+        month: state.month,
+        day: state.day,
+        year: state.year,
+        email
       })
     });
     if (!resp.ok) throw new Error('checkout failed');
@@ -461,52 +474,53 @@ async function completePayment() {
 /* ----- SIGN IN ----------------------------------------------------- */
 
 async function signIn() {
-  const name = document.getElementById('si-name').value.trim();
-  const monthName = document.getElementById('si-month').value;
-  const day = document.getElementById('si-day').value;
-  const year = document.getElementById('si-year').value;
-  if (!name || !monthName || !day || !year) { flash("Need all three."); return; }
-  const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName)+1;
+  const emailInput = document.getElementById('si-email');
+  const email = (emailInput && emailInput.value || '').trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    flash("Enter the email you used to join.");
+    if (emailInput) emailInput.focus();
+    return;
+  }
 
-  state.name = name;
-  state.month = month;
-  state.day = parseInt(day,10);
-  state.year = parseInt(year,10);
-  state.signature = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
-
-  // Optimistic: localStorage flag (set after Stripe redirect on this device)
-  state.isMember = false;
-  try {
-    const memberKey = `kismet:member:${state.signature.seed}`;
-    if (localStorage.getItem(memberKey) === '1') state.isMember = true;
-  } catch(e){}
-
-  // Authoritative: ask Stripe via /api/check-membership
   toast("Reading the records…");
   try {
-    const resp = await fetch('/api/check-membership', {
+    const resp = await fetch('/api/sign-in-by-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ seed: state.signature.seed })
+      body: JSON.stringify({ email })
     });
-    if (resp.ok) {
-      const data = await resp.json();
-      state.isMember = !!data.member;
-      try {
-        const memberKey = `kismet:member:${state.signature.seed}`;
-        if (state.isMember) localStorage.setItem(memberKey, '1');
-        else localStorage.removeItem(memberKey);
-      } catch(e){}
-    }
-  } catch(e){}
+    if (!resp.ok) throw new Error('lookup failed');
+    const data = await resp.json();
 
-  persist();
-  if (state.isMember) { go('dash'); }
-  else { renderReading(); go('reading'); }
+    if (!data.member || !data.identity || !data.identity.name) {
+      flash("No account found with that email.");
+      return;
+    }
+
+    const id = data.identity;
+    state.name = id.name;
+    state.month = id.month;
+    state.day = id.day;
+    state.year = id.year;
+    state.email = id.email;
+    state.signature = Kismet.getSignature(id.name, id.month, id.day, id.year);
+    state.isMember = true;
+
+    try {
+      if (state.signature) {
+        localStorage.setItem(`kismet:member:${state.signature.seed}`, '1');
+      }
+    } catch(e){}
+
+    persist();
+    go('dash');
+  } catch (err) {
+    flash("Couldn't reach the records — try again in a moment.");
+  }
 }
 
 function signOut() {
-  state = { name:null, month:null, day:null, year:null, signature:null, isMember:false };
+  state = { name:null, month:null, day:null, year:null, email:null, signature:null, isMember:false };
   try { localStorage.removeItem('kismet:state'); } catch(e){}
   go('landing');
 }

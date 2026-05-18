@@ -948,10 +948,15 @@
           <div class="price-strike">that's <s>$15.99</s> for the first month · auto-applied</div>
         </div>
 
+        <div class="field" style="max-width: 420px; margin: 0 auto 18px;">
+          <label for="pay-email">Email · for account access only</label>
+          <input id="pay-email" type="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
+        </div>
+
         <button class="pay-btn" onclick="completePayment()">Begin my membership →</button>
         <div class="pay-fineprint">
           Charged $7.99 today. Cancel anytime from settings.<br/>
-          We'll email you the day before any future charge.
+          Your email is only used to sign back in and notify you the day before renewal.
         </div>
 
         <div class="testify">
@@ -1087,25 +1092,13 @@
       </div>
       <div class="form-wrap">
         <h2>Welcome <em>back</em>.</h2>
-        <p class="sub">Same name. Same birthday. Same Signature.</p>
+        <p class="sub">The email you used to join. Same Signature, any device.</p>
         <div class="field">
-          <label>Your name</label>
-          <input id="si-name" type="text" placeholder="Jordan" autocapitalize="words" />
-        </div>
-        <div class="field">
-          <label>Date of birth</label>
-          <div class="dob-grid">
-            <select id="si-month">
-              <option value="">Month</option>
-              <option>January</option><option>February</option><option>March</option><option>April</option>
-              <option>May</option><option>June</option><option>July</option><option>August</option>
-              <option>September</option><option>October</option><option>November</option><option>December</option>
-            </select>
-            <select id="si-day"><option value="">Day</option></select>
-            <select id="si-year"><option value="">Year</option></select>
-          </div>
+          <label>Your email</label>
+          <input id="si-email" type="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
         </div>
         <button class="cta" style="width:100%; justify-content:center;" onclick="signIn()">Sign in <span class="arr">→</span></button>
+        <p class="sub" style="margin-top: 22px; font-size: 13px; opacity: .7;">No account yet? <a href="#" onclick="go('form'); return false;" style="color: var(--gold-2);">Read your Signature →</a></p>
       </div>
     </div>
   </section>

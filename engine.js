@@ -33,9 +33,17 @@ const Kismet = (() => {
     return h >>> 0;
   }
 
-  // Normalize a name: lowercase, strip non-letters
+  // Pull just the first name from any input ("Brad Pitt" -> "Brad", "  brad-pitt " -> "brad").
+  function firstName(name) {
+    const raw = (name || '').toString().trim();
+    if (!raw) return '';
+    // Split on whitespace, dashes, underscores, dots, commas — take the first token
+    const token = raw.split(/[\s\-_.,/]+/).find(Boolean) || raw;
+    return token;
+  }
+  // Normalize a name: take first name, lowercase, strip non-letters
   function normName(name) {
-    return (name || '').toLowerCase().replace(/[^a-z]/g, '');
+    return firstName(name).toLowerCase().replace(/[^a-z]/g, '');
   }
 
   // The "soul number": sum of letter values mod 9, +1 (range 1–9)
@@ -93,6 +101,9 @@ const Kismet = (() => {
 
   function getSignature(name, month, day, year) {
     if (!name || !month || !day || !year) return null;
+    // Display name: first name only, proper-cased
+    const first = firstName(name);
+    const displayName = first ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : '';
     const sn = soulNumber(name);
     const bm = birthMod(month, day, year);
     const seed = userSeed(name, month, day, year);
@@ -112,7 +123,7 @@ const Kismet = (() => {
     const traits = pickN(rng, TRAITS, 3);
 
     return {
-      name, month, day, year,
+      name: displayName, month, day, year,
       soulNumber: sn,
       birthMod: bm,
       sigNum,
