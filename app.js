@@ -508,6 +508,11 @@ async function requestSignInCode() {
     });
     const data = await resp.json();
     if (!resp.ok || !data.challengeToken) {
+      if (data && data.notFound) {
+        flash("No account with that email. Get your free Signature first.");
+        setTimeout(() => go('form'), 1200);
+        return;
+      }
       flash(data.error || "Couldn't send the code — try again.");
       return;
     }

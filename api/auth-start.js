@@ -1,4 +1,26 @@
 import crypto from 'crypto';
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+function escapeQuery(s) { return String(s).replace(/'/g, "\\'"); }
+
+async function hasActiveMembership(emailStr) {
+  // Check subscription metadata directly
+  const activeQuery = `metadata['email']:'${escapeQuery(emailStr)}' AND status:'active'`;
+  let result = await stripe.subscriptions.search({ query: activeQuery, limit: 1 });
+  if (result.data.length > 0) return true;
+  const trialingQuery = `metadata['email']:'${escapeQuery(emailStr)}' AND status:'trialing'`;
+  result = await stripe.subscriptions.search({ query: trialingQuery, limit: 1 });
+  if (result.data.length > 0) return true;
+  // Fallback: Stripe customer lookup
+  const customers = await stripe.customers.list({ email: emailStr, limit: 5 });
+  for (const c of customers.data) {
+    const subs = await stripe.subscriptions.list({ customer: c.id, status: 'all', limit: 5 });
+    if (subs.data.some(s => s.status === 'active' || s.status === 'trialing')) return true;
+  }
+  return false;
+}
 
 function b64urlEncode(buf) {
   return Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -49,6 +71,16 @@ export default async function handler(req, res) {
     if (!secret) return res.status(500).json({ error: 'server not configured' });
 
     res.setHeader('Cache-Control', 'no-store');
+
+    // Don't send a code unless this email actually has an active subscription.
+    // Prevents Resend quota leaks and emails to people who never signed up.
+    const isMember = await hasActiveMembership(emailStr);
+    if (!isMember) {
+      return res.status(404).json({
+        error: 'No active membership found for that email.',
+        notFound: true
+      });
+    }
 
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
     const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
