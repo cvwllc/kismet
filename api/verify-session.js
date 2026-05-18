@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
 
     const session = await stripe.checkout.sessions.retrieve(String(sessionId), {
-      expand: ['subscription']
+      expand: ['subscription', 'customer']
     });
 
     if (!session) return res.status(404).json({ error: 'session not found' });
@@ -28,6 +28,28 @@ export default async function handler(req, res) {
     }
 
     const m = (sub && sub.metadata) || session.metadata || {};
+    // Canonical email = the one the customer actually completed Checkout with.
+    // If they edited it at Stripe and it differs from what we stored, sync subscription metadata.
+    const customer = session.customer && typeof session.customer === 'object' ? session.customer : null;
+    const canonicalEmail = (
+      (customer && customer.email) ||
+      session.customer_details?.email ||
+      session.customer_email ||
+      m.email ||
+      null
+    );
+    const canonicalLower = canonicalEmail ? String(canonicalEmail).trim().toLowerCase() : null;
+    if (canonicalLower && m.email && m.email.toLowerCase() !== canonicalLower) {
+      try {
+        await stripe.subscriptions.update(sub.id, {
+          metadata: { ...m, email: canonicalLower }
+        });
+        m.email = canonicalLower;
+      } catch (e) {
+        console.error('metadata email sync failed', e);
+      }
+    }
+
     return res.status(200).json({
       member: true,
       status: sub.status,
@@ -38,7 +60,7 @@ export default async function handler(req, res) {
         month: m.month ? Number(m.month) : null,
         day: m.day ? Number(m.day) : null,
         year: m.year ? Number(m.year) : null,
-        email: m.email || session.customer_details?.email || session.customer_email || null
+        email: canonicalLower || m.email || null
       }
     });
   } catch (err) {

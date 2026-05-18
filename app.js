@@ -107,6 +107,13 @@ function persist() {
   try { localStorage.setItem('kismet:state', JSON.stringify(state)); } catch(e){}
 }
 
+// HTML-escape user-controlled text before interpolating into innerHTML.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 // Disable a button while an async action runs; show a "Working…" label.
 async function withButtonLock(btn, fn) {
   if (!btn || btn.dataset.locked === '1') return;
@@ -186,6 +193,12 @@ function populateDOB(dayId, yearId) {
 /* ----- NAVIGATION --------------------------------------------------- */
 
 function go(scene) {
+  // Member guards: paywall and sign-in scenes don't make sense if already signed in.
+  if (state.isMember && state.signature) {
+    if (scene === 'paywall') { scene = 'dash'; }
+    if (scene === 'signin')  { scene = 'dash'; }
+  }
+
   SCENES.forEach(s => {
     const el = document.getElementById('scene-' + s);
     if (el) el.classList.toggle('active', s === scene);
@@ -217,6 +230,14 @@ function submitForm() {
   }
   if (name.length < 2) {
     flash("Use a name with at least two letters.");
+    return;
+  }
+
+  // Signed-in members can't overwrite their identity here — that would replace their dashboard.
+  // Route them to compatibility (where reading other people belongs).
+  if (state.isMember && state.signature) {
+    flash("You're already signed in. Read other people from Compatibility →");
+    setTimeout(() => go('compat'), 900);
     return;
   }
 
@@ -378,13 +399,13 @@ function runCompat() {
     out.classList.remove('hidden');
     out.innerHTML = `
       <div class="compat-card">
-        <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${sig1.name} × ${sig1.name}</div>
+        <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${esc(sig1.name)} × ${esc(sig1.name)}</div>
         <div class="pct" style="font-size: 56px;">∞<span class="pc" style="font-size: 22px; margin-left: 6px;">/ ∞</span></div>
         <div class="verdict" style="font-style: italic;">A mirror, not a match.</div>
         <div class="reading">You can't measure compatibility with the one keeping score. The cosmos doesn't divide you from yourself — but the fact that you tried is interesting. What were you hoping to find? Run someone you can't predict next.</div>
         <div style="display:flex; justify-content:center; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
           <div style="text-align:center;">
-            <div style="font-family: var(--display); font-style: italic; font-size: 22px; color: var(--gold-2);">${sig1.archetype}</div>
+            <div style="font-family: var(--display); font-style: italic; font-size: 22px; color: var(--gold-2);">${esc(sig1.archetype)}</div>
             <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">facing themselves</div>
           </div>
         </div>
@@ -400,19 +421,19 @@ function runCompat() {
   out.classList.remove('hidden');
   out.innerHTML = `
     <div class="compat-card">
-      <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${sig1.name} × ${sig2.name}</div>
-      <div class="pct">${c.score}<span class="pc">%</span></div>
-      <div class="verdict">${c.verdict}</div>
-      <div class="reading">${c.reading}</div>
+      <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${esc(sig1.name)} × ${esc(sig2.name)}</div>
+      <div class="pct">${esc(c.score)}<span class="pc">%</span></div>
+      <div class="verdict">${esc(c.verdict)}</div>
+      <div class="reading">${esc(c.reading)}</div>
       <div style="display:flex; gap: 16px; justify-content: space-around; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
         <div>
-          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${sig1.archetype}</div>
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${sig1.name}</div>
+          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${esc(sig1.archetype)}</div>
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${esc(sig1.name)}</div>
         </div>
         <div style="font-family: var(--mono); color: var(--gold); align-self: center;">×</div>
         <div>
-          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${sig2.archetype}</div>
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${sig2.name}</div>
+          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${esc(sig2.archetype)}</div>
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${esc(sig2.name)}</div>
         </div>
       </div>
     </div>
@@ -532,8 +553,13 @@ async function completePayment() {
           email
         })
       });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.status === 409 && data.alreadyMember) {
+        flash("This email already has a membership — sign in.");
+        setTimeout(() => go('signin'), 900);
+        return;
+      }
       if (!resp.ok) throw new Error('checkout failed');
-      const data = await resp.json();
       if (data && data.url) {
         window.location = data.url;
       } else {
@@ -583,11 +609,6 @@ async function requestSignInCode() {
       });
       const data = await resp.json();
       if (!resp.ok || !data.challengeToken) {
-        if (data && data.notFound) {
-          flash("No account with that email. Get your free Signature first.");
-          setTimeout(() => go('form'), 1200);
-          return;
-        }
         flash(data.error || "Couldn't send the code — try again.");
         return;
       }
@@ -662,11 +683,17 @@ async function verifySignInCode() {
 }
 
 function signOut() {
-  const seed = state.signature && state.signature.seed;
   state = { name:null, month:null, day:null, year:null, email:null, signature:null, isMember:false };
   try {
     localStorage.removeItem('kismet:state');
-    if (seed) localStorage.removeItem(`kismet:member:${seed}`);
+    // Sweep all orphan per-seed membership flags so re-using the device with a different signature
+    // doesn't get fooled by stale data.
+    const toDrop = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('kismet:member:')) toDrop.push(k);
+    }
+    toDrop.forEach(k => localStorage.removeItem(k));
   } catch(e){}
   go('landing');
 }

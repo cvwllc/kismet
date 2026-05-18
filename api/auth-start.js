@@ -72,15 +72,9 @@ export default async function handler(req, res) {
 
     res.setHeader('Cache-Control', 'no-store');
 
-    // Don't send a code unless this email actually has an active subscription.
-    // Prevents Resend quota leaks and emails to people who never signed up.
+    // Check membership but DON'T leak existence to the caller — return the same response shape
+    // either way (just don't actually send an email if the email isn't a member).
     const isMember = await hasActiveMembership(emailStr);
-    if (!isMember) {
-      return res.status(404).json({
-        error: 'No active membership found for that email.',
-        notFound: true
-      });
-    }
 
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
     const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
@@ -96,29 +90,33 @@ export default async function handler(req, res) {
     const sig = sign(payloadB64, secret);
     const challengeToken = `${payloadB64}.${sig}`;
 
-    const fromAddr = process.env.RESEND_FROM || 'Kismet <onboarding@resend.dev>';
-
-    const resendResp = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: fromAddr,
-        to: [emailStr],
-        subject: `Kismet sign-in code: ${code}`,
-        html: emailHtml(code),
-        text: `Your Kismet sign-in code: ${code}\n\nValid for 10 minutes. If you didn't request this, ignore it.\n\nkismet.cards`
-      })
-    });
-
-    if (!resendResp.ok) {
-      const errText = await resendResp.text();
-      console.error('resend send failed', resendResp.status, errText);
-      return res.status(502).json({ error: 'Could not send code — try again' });
+    // Only actually send the email if there's a real active subscription for this address.
+    if (isMember) {
+      const fromAddr = process.env.RESEND_FROM || 'Kismet <onboarding@resend.dev>';
+      const resendResp = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: fromAddr,
+          reply_to: 'hello@kismet.cards',
+          to: [emailStr],
+          subject: `${code} is your Kismet sign-in code`,
+          html: emailHtml(code),
+          text: `${code} is your Kismet sign-in code.\n\nValid for 10 minutes. If you didn't request this, ignore it.\n\nkismet.cards`
+        })
+      });
+      if (!resendResp.ok) {
+        const errText = await resendResp.text();
+        console.error('resend send failed', resendResp.status, errText);
+        return res.status(502).json({ error: 'Could not send code — try again' });
+      }
     }
 
+    // Return the same response whether or not the email is a member.
+    // Non-members will simply never receive a code; the UI shows the same step-2.
     return res.status(200).json({ challengeToken, email: emailStr });
   } catch (err) {
     console.error('auth-start error', err);
