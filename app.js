@@ -132,6 +132,7 @@ function go(scene) {
   if (scene === 'compat') {
     document.getElementById('compat-out').classList.add('hidden');
   }
+  if (scene === 'signin') resetSignInToStep1();
 }
 
 /* ----- FORM SUBMISSION ---------------------------------------------- */
@@ -473,27 +474,85 @@ async function completePayment() {
 
 /* ----- SIGN IN ----------------------------------------------------- */
 
-async function signIn() {
+let _signInChallenge = null;
+
+function resetSignInToStep1() {
+  _signInChallenge = null;
+  const s1 = document.getElementById('signin-step1');
+  const s2 = document.getElementById('signin-step2');
+  if (s1) s1.classList.remove('hidden');
+  if (s2) s2.classList.add('hidden');
+  const code = document.getElementById('si-code');
+  if (code) code.value = '';
+  setTimeout(() => {
+    const e = document.getElementById('si-email');
+    if (e) e.focus();
+  }, 50);
+}
+
+async function requestSignInCode() {
   const emailInput = document.getElementById('si-email');
   const email = (emailInput && emailInput.value || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    flash("Enter the email you used to join.");
+    flash("Enter a valid email.");
     if (emailInput) emailInput.focus();
+    return;
+  }
+
+  toast("Sending your code…");
+  try {
+    const resp = await fetch('/api/auth-start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.challengeToken) {
+      flash(data.error || "Couldn't send the code — try again.");
+      return;
+    }
+    _signInChallenge = { token: data.challengeToken, email: data.email || email };
+
+    const s1 = document.getElementById('signin-step1');
+    const s2 = document.getElementById('signin-step2');
+    const echo = document.getElementById('si-email-echo');
+    if (echo) echo.textContent = data.email || email;
+    if (s1) s1.classList.add('hidden');
+    if (s2) s2.classList.remove('hidden');
+    setTimeout(() => {
+      const c = document.getElementById('si-code');
+      if (c) c.focus();
+    }, 50);
+    toast("Code sent · check your inbox");
+  } catch (err) {
+    flash("Couldn't send the code — try again.");
+  }
+}
+
+async function verifySignInCode() {
+  if (!_signInChallenge) { resetSignInToStep1(); return; }
+  const codeInput = document.getElementById('si-code');
+  const code = (codeInput && codeInput.value || '').trim();
+  if (!/^\d{6}$/.test(code)) {
+    flash("Enter the 6 digits from your email.");
+    if (codeInput) codeInput.focus();
     return;
   }
 
   toast("Reading the records…");
   try {
-    const resp = await fetch('/api/sign-in-by-email', {
+    const resp = await fetch('/api/auth-verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ challengeToken: _signInChallenge.token, code })
     });
-    if (!resp.ok) throw new Error('lookup failed');
     const data = await resp.json();
-
+    if (!resp.ok) {
+      flash(data.error || "Couldn't verify code.");
+      return;
+    }
     if (!data.member || !data.identity || !data.identity.name) {
-      flash("No account found with that email.");
+      flash("No active membership found for that email.");
       return;
     }
 
@@ -505,17 +564,16 @@ async function signIn() {
     state.email = id.email;
     state.signature = Kismet.getSignature(id.name, id.month, id.day, id.year);
     state.isMember = true;
+    _signInChallenge = null;
 
     try {
-      if (state.signature) {
-        localStorage.setItem(`kismet:member:${state.signature.seed}`, '1');
-      }
+      if (state.signature) localStorage.setItem(`kismet:member:${state.signature.seed}`, '1');
     } catch(e){}
 
     persist();
     go('dash');
   } catch (err) {
-    flash("Couldn't reach the records — try again in a moment.");
+    flash("Couldn't verify — try again.");
   }
 }
 

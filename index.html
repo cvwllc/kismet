@@ -1090,15 +1090,25 @@
         <button class="back-btn" onclick="go('landing')">← Back</button>
         <div class="wordmark">K·I·S·M·E·T</div>
       </div>
-      <div class="form-wrap">
+      <div class="form-wrap" id="signin-step1">
         <h2>Welcome <em>back</em>.</h2>
-        <p class="sub">The email you used to join. Same Signature, any device.</p>
+        <p class="sub">Enter the email you used to join. We'll send a 6-digit code.</p>
         <div class="field">
           <label>Your email</label>
           <input id="si-email" type="email" placeholder="you@example.com" autocomplete="email" inputmode="email" />
         </div>
-        <button class="cta" style="width:100%; justify-content:center;" onclick="signIn()">Sign in <span class="arr">→</span></button>
+        <button class="cta" style="width:100%; justify-content:center;" onclick="requestSignInCode()">Send code <span class="arr">→</span></button>
         <p class="sub" style="margin-top: 22px; font-size: 13px; opacity: .7;">No account yet? <a href="#" onclick="go('form'); return false;" style="color: var(--gold-2);">Read your Signature →</a></p>
+      </div>
+      <div class="form-wrap hidden" id="signin-step2">
+        <h2>Check your <em>email</em>.</h2>
+        <p class="sub">We sent a 6-digit code to <span id="si-email-echo" style="color: var(--gold-2);"></span>. It expires in 10 minutes.</p>
+        <div class="field">
+          <label>6-digit code</label>
+          <input id="si-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="font-family: var(--mono); font-size: 22px; letter-spacing: .35em; text-align: center;" />
+        </div>
+        <button class="cta" style="width:100%; justify-content:center;" onclick="verifySignInCode()">Verify <span class="arr">→</span></button>
+        <p class="sub" style="margin-top: 22px; font-size: 13px; opacity: .7;">Didn't get it? <a href="#" onclick="resetSignInToStep1(); return false;" style="color: var(--gold-2);">Try a different email →</a></p>
       </div>
     </div>
   </section>
