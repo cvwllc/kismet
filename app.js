@@ -302,6 +302,29 @@ function runCompat() {
   }
   const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName)+1;
   const sig2 = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+
+  // Easter egg: same signature seed = trying to read yourself
+  if (sig2.seed === sig1.seed) {
+    const out = document.getElementById('compat-out');
+    out.classList.remove('hidden');
+    out.innerHTML = `
+      <div class="compat-card">
+        <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${sig1.name} × ${sig1.name}</div>
+        <div class="pct" style="font-size: 56px;">∞<span class="pc" style="font-size: 22px; margin-left: 6px;">/ ∞</span></div>
+        <div class="verdict" style="font-style: italic;">A mirror, not a match.</div>
+        <div class="reading">You can't measure compatibility with the one keeping score. The cosmos doesn't divide you from yourself — but the fact that you tried is interesting. What were you hoping to find? Run someone you can't predict next.</div>
+        <div style="display:flex; justify-content:center; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
+          <div style="text-align:center;">
+            <div style="font-family: var(--display); font-style: italic; font-size: 22px; color: var(--gold-2);">${sig1.archetype}</div>
+            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">facing themselves</div>
+          </div>
+        </div>
+      </div>
+    `;
+    out.scrollIntoView({behavior:'smooth', block:'center'});
+    return;
+  }
+
   const c = Kismet.getCompatibility(sig1, sig2);
 
   const out = document.getElementById('compat-out');
@@ -330,22 +353,83 @@ function runCompat() {
 
 /* ----- SHARE + SCREENSHOT ------------------------------------------ */
 
-function shareCard() {
-  const sig = state.signature;
-  if (!sig) return;
-  const url = location.origin + location.pathname;
-  const text = `I'm ${sig.archetype} on Kismet — "${sig.tag}" · find yours: ${url}`;
-
-  if (navigator.share) {
-    navigator.share({ title: 'My Kismet Signature', text, url }).catch(()=>{});
-  } else {
-    navigator.clipboard.writeText(text).then(() => toast("Copied — paste it anywhere"));
-  }
-  burst(event && event.target);
+async function renderCardToBlob() {
+  if (typeof html2canvas === 'undefined') return null;
+  const card = document.getElementById('reading-card');
+  if (!card) return null;
+  const canvas = await html2canvas(card, {
+    backgroundColor: null,
+    scale: Math.min(3, (window.devicePixelRatio || 1) * 2),
+    useCORS: true,
+    logging: false
+  });
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
 }
 
-function screenshotHint() {
-  toast("Screenshot it · post it · tag a friend");
+function _fileName() {
+  const n = (state.name || 'kismet').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return `kismet-${n || 'signature'}.png`;
+}
+
+async function saveCard() {
+  const sig = state.signature;
+  if (!sig) return;
+  burst(event && event.target);
+  toast("Painting the card…");
+  try {
+    const blob = await renderCardToBlob();
+    if (!blob) { toast("Try a screenshot — saver didn't load"); return; }
+
+    const fileName = _fileName();
+    const file = new File([blob], fileName, { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'My Kismet Signature' });
+        return;
+      } catch(e) { /* user canceled — fall through to download */ }
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast("Saved to your downloads");
+  } catch (err) {
+    toast("Couldn't save — try a screenshot");
+  }
+}
+
+async function shareCard() {
+  const sig = state.signature;
+  if (!sig) return;
+  burst(event && event.target);
+  const url = 'https://kismet.cards';
+  const text = `I'm ${sig.archetype} on Kismet — "${sig.tag}". Find yours:`;
+
+  // Try sharing the image directly first (best for TikTok/Insta uploads)
+  try {
+    const blob = await renderCardToBlob();
+    if (blob && navigator.canShare) {
+      const file = new File([blob], _fileName(), { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: 'My Kismet Signature', text: `${text} ${url}` });
+          return;
+        } catch(e) { /* canceled or unsupported — fall through */ }
+      }
+    }
+  } catch(e){}
+
+  // Text/URL share fallback
+  if (navigator.share) {
+    try { await navigator.share({ title: 'My Kismet Signature', text, url }); return; }
+    catch(e){}
+  }
+
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast("Link copied — paste anywhere"); }
+  catch(e) { toast("Long-press the card to save"); }
 }
 
 /* ----- PAYMENT (Stripe Checkout) ----------------------------------- */
@@ -376,7 +460,7 @@ async function completePayment() {
 
 /* ----- SIGN IN ----------------------------------------------------- */
 
-function signIn() {
+async function signIn() {
   const name = document.getElementById('si-name').value.trim();
   const monthName = document.getElementById('si-month').value;
   const day = document.getElementById('si-day').value;
@@ -389,11 +473,33 @@ function signIn() {
   state.day = parseInt(day,10);
   state.year = parseInt(year,10);
   state.signature = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
-  // If they had previously paid (same signature), restore membership
+
+  // Optimistic: localStorage flag (set after Stripe redirect on this device)
+  state.isMember = false;
   try {
     const memberKey = `kismet:member:${state.signature.seed}`;
     if (localStorage.getItem(memberKey) === '1') state.isMember = true;
   } catch(e){}
+
+  // Authoritative: ask Stripe via /api/check-membership
+  toast("Reading the records…");
+  try {
+    const resp = await fetch('/api/check-membership', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed: state.signature.seed })
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      state.isMember = !!data.member;
+      try {
+        const memberKey = `kismet:member:${state.signature.seed}`;
+        if (state.isMember) localStorage.setItem(memberKey, '1');
+        else localStorage.removeItem(memberKey);
+      } catch(e){}
+    }
+  } catch(e){}
+
   persist();
   if (state.isMember) { go('dash'); }
   else { renderReading(); go('reading'); }

@@ -11,15 +11,22 @@ export default async function handler(req, res) {
     const { signatureSeed, name } = req.body || {};
     const siteUrl = process.env.SITE_URL || `https://${req.headers.host}`;
 
+    const seedStr = String(signatureSeed || '');
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
-      success_url: `${siteUrl}/?paid=1&seed=${encodeURIComponent(signatureSeed || '')}`,
+      success_url: `${siteUrl}/?paid=1&seed=${encodeURIComponent(seedStr)}`,
       cancel_url: `${siteUrl}/?canceled=1`,
-      client_reference_id: signatureSeed ? String(signatureSeed) : undefined,
+      client_reference_id: seedStr || undefined,
       metadata: {
-        signatureSeed: String(signatureSeed || ''),
+        signatureSeed: seedStr,
         name: String(name || '')
+      },
+      subscription_data: {
+        metadata: {
+          seed: seedStr,
+          name: String(name || '')
+        }
       },
       allow_promotion_codes: true
     });
