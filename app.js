@@ -615,6 +615,10 @@ async function requestSignInCode() {
         body: JSON.stringify({ email })
       });
       const data = await resp.json();
+      if (resp.status === 429) {
+        flash(data.error || "Too many attempts. Try again shortly.");
+        return;
+      }
       if (!resp.ok || !data.challengeToken) {
         flash(data.error || "Couldn't send the code — try again.");
         return;

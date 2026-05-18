@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { limiters, getClientIp, enforce } from './_ratelimit.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -28,6 +29,12 @@ export default async function handler(req, res) {
     }
 
     res.setHeader('Cache-Control', 'no-store');
+
+    // Rate limit: 10 / 10 min per IP.
+    const limited = await enforce([
+      { limiter: limiters.portalByIp, key: getClientIp(req), message: 'Too many portal requests. Try again shortly.' }
+    ]);
+    if (limited) return res.status(limited.status).json(limited.body);
 
     const customerId = await findCustomerIdByEmail(emailStr);
     if (!customerId) return res.status(404).json({ error: 'no customer found' });

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
+import { limiters, getClientIp, enforce } from './_ratelimit.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -71,6 +72,14 @@ export default async function handler(req, res) {
     if (!secret) return res.status(500).json({ error: 'server not configured' });
 
     res.setHeader('Cache-Control', 'no-store');
+
+    // Rate limit: 5/10min per IP and 3/hour per email. Per-email runs first so an attacker can't
+    // burn another user's quota by spoofing X-Forwarded-For.
+    const limited = await enforce([
+      { limiter: limiters.authStartByEmail, key: emailStr, message: 'Too many code requests for this email. Try again later.' },
+      { limiter: limiters.authStartByIp,    key: getClientIp(req), message: 'Too many requests from this network. Try again later.' }
+    ]);
+    if (limited) return res.status(limited.status).json(limited.body);
 
     // Check membership but DON'T leak existence to the caller — return the same response shape
     // either way (just don't actually send an email if the email isn't a member).

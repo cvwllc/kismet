@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import Stripe from 'stripe';
+import { limiters, getClientIp, enforce } from './_ratelimit.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -67,6 +68,12 @@ export default async function handler(req, res) {
     if (!secret) return res.status(500).json({ error: 'server not configured' });
 
     res.setHeader('Cache-Control', 'no-store');
+
+    // Rate limit: 10 attempts / 10 min per IP. Prevents brute-forcing the 6-digit code.
+    const limited = await enforce([
+      { limiter: limiters.authVerifyByIp, key: getClientIp(req), message: 'Too many attempts. Try again in a few minutes.' }
+    ]);
+    if (limited) return res.status(limited.status).json(limited.body);
 
     const parts = String(challengeToken).split('.');
     if (parts.length !== 2) return res.status(400).json({ error: 'invalid token' });

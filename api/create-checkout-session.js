@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { limiters, getClientIp, enforce } from './_ratelimit.js';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
@@ -35,6 +36,12 @@ export default async function handler(req, res) {
     if (!emailStr) {
       return res.status(400).json({ error: 'email required' });
     }
+
+    // Rate limit: 5 / 10 min per IP. Stops bots spinning up sessions to abuse Stripe.
+    const limited = await enforce([
+      { limiter: limiters.checkoutByIp, key: getClientIp(req), message: 'Too many checkout attempts. Try again shortly.' }
+    ]);
+    if (limited) return res.status(limited.status).json(limited.body);
 
     // Prevent duplicate billing: if this email already has an active sub, refuse to start a new checkout.
     if (await hasActiveSub(emailStr)) {
