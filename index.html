@@ -120,6 +120,23 @@
     transition: all .25s;
   }
   .icon-btn:hover { border-color: var(--gold); color: var(--gold-2); }
+  .text-link {
+    background: transparent;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--gold-2);
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .text-link:hover {
+    background: rgba(240,198,116,.08);
+    color: var(--gold);
+  }
 
   /* ========== LANDING ========== */
   .hero {
@@ -746,7 +763,7 @@
 
       <div class="topbar">
         <div class="wordmark">K<span class="dot">·</span>I<span class="dot">·</span>S<span class="dot">·</span>M<span class="dot">·</span>E<span class="dot">·</span>T</div>
-        <button class="icon-btn" onclick="go('signin')" title="Already a member">↩</button>
+        <button class="text-link" onclick="go('signin')">Sign in</button>
       </div>
 
       <div class="hero">
@@ -755,6 +772,7 @@
         <p class="kicker">Tell us your name and the day you were born. We'll tell you something specific enough to feel uncomfortable.</p>
         <button class="cta" onclick="go('form')">Read me <span class="arr">→</span></button>
         <div class="subnote"><b>Free</b> first reading · No card required</div>
+        <div class="subnote" style="margin-top: 18px;">Already a member? <a href="#" onclick="go('signin'); return false;" style="color: var(--gold-2); text-decoration: underline; text-underline-offset: 3px;">Sign in →</a></div>
       </div>
 
       <div class="sample-card">
