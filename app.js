@@ -1,0 +1,423 @@
+/* ========================================================================
+   KISMET APP CONTROLLER
+   ======================================================================== */
+
+let state = {
+  name: null, month: null, day: null, year: null,
+  signature: null,
+  isMember: false
+};
+
+const SCENES = ['landing','form','divining','reading','paywall','dash','shadow','compat','year','signin'];
+
+/* ----- BOOT --------------------------------------------------------- */
+
+function boot() {
+  // Generate the starfield
+  generateStars();
+
+  // Populate day/year dropdowns
+  populateDOB('in-day', 'in-year');
+  populateDOB('cm-day', 'cm-year');
+  populateDOB('si-day', 'si-year');
+
+  // Restore session if we have one
+  try {
+    const raw = localStorage.getItem('kismet:state');
+    if (raw) {
+      const s = JSON.parse(raw);
+      Object.assign(state, s);
+      if (state.signature) {
+        // If they're a member, drop them in the dashboard. Otherwise re-show reading.
+        if (state.isMember) renderDashboard();
+        go(state.isMember ? 'dash' : 'reading');
+        if (!state.isMember) renderReading();
+      }
+    }
+  } catch(e) {}
+}
+
+function persist() {
+  try { localStorage.setItem('kismet:state', JSON.stringify(state)); } catch(e){}
+}
+
+function generateStars() {
+  const container = document.querySelector('.stars');
+  if (!container) return;
+  container.innerHTML = '';
+  // Adjust count for screen size
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const area = w * h;
+  const baseCount = Math.round(area / 9000); // ~80 on a typical laptop, ~50 on a phone
+  const count = Math.max(40, Math.min(140, baseCount));
+
+  for (let i = 0; i < count; i++) {
+    const s = document.createElement('div');
+    s.className = 'star';
+    // 12% gold, 8% rose, rest white
+    const r = Math.random();
+    if (r < 0.12) s.classList.add('gold');
+    else if (r < 0.20) s.classList.add('rose');
+    if (Math.random() < 0.15) s.classList.add('drift');
+
+    // Size: most small, occasional bigger ones
+    const size = Math.random() < 0.18
+      ? 2.5 + Math.random() * 1.5   // bright larger stars
+      : 1 + Math.random() * 1.2;    // most stars small
+    s.style.width = size + 'px';
+    s.style.height = size + 'px';
+    s.style.left = (Math.random() * 100) + 'vw';
+    s.style.top = (Math.random() * 100) + 'vh';
+    s.style.setProperty('--dur', (2.5 + Math.random() * 5) + 's');
+    s.style.setProperty('--delay', (Math.random() * 5) + 's');
+    container.appendChild(s);
+  }
+}
+
+// Regenerate stars on resize (debounced)
+let _starResizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(_starResizeTimer);
+  _starResizeTimer = setTimeout(generateStars, 300);
+});
+
+function populateDOB(dayId, yearId) {
+  const dayEl = document.getElementById(dayId);
+  const yearEl = document.getElementById(yearId);
+  if (dayEl && dayEl.children.length <= 1) {
+    for (let d = 1; d <= 31; d++) {
+      const o = document.createElement('option'); o.textContent = d; dayEl.appendChild(o);
+    }
+  }
+  if (yearEl && yearEl.children.length <= 1) {
+    const now = new Date().getFullYear();
+    for (let y = now; y >= 1925; y--) {
+      const o = document.createElement('option'); o.textContent = y; yearEl.appendChild(o);
+    }
+  }
+}
+
+/* ----- NAVIGATION --------------------------------------------------- */
+
+function go(scene) {
+  SCENES.forEach(s => {
+    const el = document.getElementById('scene-' + s);
+    if (el) el.classList.toggle('active', s === scene);
+  });
+  window.scrollTo({top:0, behavior: 'auto'});
+
+  // Trigger per-scene render
+  if (scene === 'dash') renderDashboard();
+  if (scene === 'shadow') renderShadow();
+  if (scene === 'year') renderYear();
+  if (scene === 'reading' && state.signature) renderReading();
+  if (scene === 'compat') {
+    document.getElementById('compat-out').classList.add('hidden');
+  }
+}
+
+/* ----- FORM SUBMISSION ---------------------------------------------- */
+
+function submitForm() {
+  const name = document.getElementById('in-name').value.trim();
+  const monthName = document.getElementById('in-month').value;
+  const day = document.getElementById('in-day').value;
+  const year = document.getElementById('in-year').value;
+
+  if (!name || !monthName || !day || !year) {
+    flash("Tell us all three. The math needs every part.");
+    return;
+  }
+  if (name.length < 2) {
+    flash("Use a name with at least two letters.");
+    return;
+  }
+
+  const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName) + 1;
+
+  state.name = name;
+  state.month = month;
+  state.day = parseInt(day, 10);
+  state.year = parseInt(year, 10);
+  state.signature = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+  persist();
+
+  go('divining');
+  runDivining(() => {
+    renderReading();
+    go('reading');
+  });
+}
+
+/* ----- DIVINING ANIMATION ------------------------------------------- */
+
+function runDivining(onDone) {
+  const steps = [
+    "Mapping name to numeric form",
+    "Locating natal coordinates",
+    "Cross-referencing element & polarity",
+    "Aligning glyph",
+    "Drawing the card"
+  ];
+  const h = document.getElementById('div-h');
+  const s = document.getElementById('div-step');
+  h.textContent = "Reading your Signature…";
+  let i = 0;
+  s.textContent = steps[0];
+  const interval = setInterval(() => {
+    i++;
+    if (i >= steps.length) {
+      clearInterval(interval);
+      setTimeout(onDone, 500);
+    } else {
+      s.textContent = steps[i];
+    }
+  }, 600);
+}
+
+/* ----- RENDER: SIGNATURE READING ----------------------------------- */
+
+function renderReading() {
+  const sig = state.signature;
+  if (!sig) return;
+
+  document.getElementById('card-name').textContent = sig.name;
+  document.getElementById('card-arch').textContent = sig.archetype;
+  document.getElementById('card-tag').textContent = sig.tag;
+  document.getElementById('card-glyph').textContent = `${sig.glyph} NR.${sig.sigNum}`;
+  document.getElementById('card-num').textContent = `№ ${sig.soulNumber}`;
+  document.getElementById('card-elem').textContent = `${sig.element} · ${sig.polarity}`;
+  document.getElementById('card-pol').textContent = sig.glyph;
+
+  document.getElementById('card-body').innerHTML = Kismet.generateSignatureReading(sig);
+
+  document.getElementById('card-date').textContent =
+    new Date().toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+
+  // Locked preview — pulls from shadow reading
+  const shadow = Kismet.generateShadowReading(sig);
+  document.getElementById('lock-title').textContent = shadow.headline;
+  document.getElementById('lock-blur').innerHTML = shadow.body;
+}
+
+/* ----- RENDER: DASHBOARD ------------------------------------------- */
+
+function renderDashboard() {
+  const sig = state.signature;
+  if (!sig) { go('form'); return; }
+
+  document.getElementById('dash-name').textContent = sig.name;
+
+  const today = new Date();
+  document.getElementById('dash-date').textContent =
+    today.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  document.getElementById('dash-sig').textContent = `${sig.glyph} № ${sig.soulNumber}`;
+
+  const daily = Kismet.generateDailyReading(sig, today);
+  document.getElementById('dash-headline').textContent = daily.headline;
+  document.getElementById('dash-body').innerHTML = `<p>${daily.body}</p>`;
+}
+
+/* ----- RENDER: SHADOW READING -------------------------------------- */
+
+function renderShadow() {
+  const sig = state.signature;
+  if (!sig) return;
+  const sh = Kismet.generateShadowReading(sig);
+  const now = new Date();
+  document.getElementById('shadow-week').textContent =
+    now.toLocaleDateString('en-US',{month:'long', day:'numeric'});
+  document.getElementById('shadow-pat').textContent = sh.pattern;
+  document.getElementById('shadow-headline').textContent = sh.headline;
+  document.getElementById('shadow-body').innerHTML = `<p>${sh.body}</p>`;
+}
+
+/* ----- RENDER: YEAR AHEAD ------------------------------------------ */
+
+function renderYear() {
+  const sig = state.signature;
+  if (!sig) return;
+  const months = Kismet.generateYearAhead(sig);
+  const grid = document.getElementById('year-grid');
+  grid.innerHTML = '';
+  months.forEach(m => {
+    const cell = document.createElement('div');
+    cell.className = 'year-cell';
+    // Color from intensity
+    const opacity = .25 + (m.intensity * 0.13);
+    let color;
+    if (m.bucket === 'high') color = `rgba(240,198,116,${opacity + 0.2})`;
+    else if (m.bucket === 'low') color = `rgba(74,30,92,${opacity})`;
+    else color = `rgba(196,107,138,${opacity})`;
+    cell.style.background = color;
+    if (m.bucket === 'high') cell.style.boxShadow = '0 0 20px rgba(240,198,116,.4)';
+    cell.innerHTML = `<div class="m">${m.label}</div>`;
+    grid.appendChild(cell);
+  });
+  // Readouts
+  const out = document.getElementById('year-readouts');
+  out.innerHTML = months.map(m => `
+    <div class="today" style="margin-bottom: 12px;">
+      <div class="label">
+        <span>${m.full} ${m.year}</span>
+        <span>${'·'.repeat(m.intensity)}${' '.repeat(5-m.intensity)}</span>
+      </div>
+      <div class="headline" style="font-size:20px;">${capitalize(m.theme)}</div>
+      <div class="body" style="font-size:15px;">${m.note}</div>
+    </div>
+  `).join('');
+}
+
+function capitalize(s){ return s.charAt(0).toUpperCase()+s.slice(1); }
+
+/* ----- COMPATIBILITY ----------------------------------------------- */
+
+function runCompat() {
+  const sig1 = state.signature;
+  if (!sig1) { go('form'); return; }
+  const name = document.getElementById('cm-name').value.trim();
+  const monthName = document.getElementById('cm-month').value;
+  const day = document.getElementById('cm-day').value;
+  const year = document.getElementById('cm-year').value;
+  if (!name || !monthName || !day || !year) {
+    flash("Need their full info to run the math."); return;
+  }
+  const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName)+1;
+  const sig2 = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+  const c = Kismet.getCompatibility(sig1, sig2);
+
+  const out = document.getElementById('compat-out');
+  out.classList.remove('hidden');
+  out.innerHTML = `
+    <div class="compat-card">
+      <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${sig1.name} × ${sig2.name}</div>
+      <div class="pct">${c.score}<span class="pc">%</span></div>
+      <div class="verdict">${c.verdict}</div>
+      <div class="reading">${c.reading}</div>
+      <div style="display:flex; gap: 16px; justify-content: space-around; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
+        <div>
+          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${sig1.archetype}</div>
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${sig1.name}</div>
+        </div>
+        <div style="font-family: var(--mono); color: var(--gold); align-self: center;">×</div>
+        <div>
+          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${sig2.archetype}</div>
+          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${sig2.name}</div>
+        </div>
+      </div>
+    </div>
+  `;
+  out.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+/* ----- SHARE + SCREENSHOT ------------------------------------------ */
+
+function shareCard() {
+  const sig = state.signature;
+  if (!sig) return;
+  const url = location.origin + location.pathname;
+  const text = `I'm ${sig.archetype} on Kismet — "${sig.tag}" · find yours: ${url}`;
+
+  if (navigator.share) {
+    navigator.share({ title: 'My Kismet Signature', text, url }).catch(()=>{});
+  } else {
+    navigator.clipboard.writeText(text).then(() => toast("Copied — paste it anywhere"));
+  }
+  burst(event && event.target);
+}
+
+function screenshotHint() {
+  toast("Screenshot it · post it · tag a friend");
+}
+
+/* ----- PAYMENT (placeholder — wire to Stripe later) ---------------- */
+
+function completePayment() {
+  // ⟶ In production, this is where Stripe Checkout would redirect.
+  // For this build: simulate success and unlock.
+  state.isMember = true;
+  persist();
+  burst(event && event.target);
+  setTimeout(() => {
+    toast("You're in. Welcome.");
+    setTimeout(() => go('dash'), 900);
+  }, 200);
+}
+
+/* ----- SIGN IN ----------------------------------------------------- */
+
+function signIn() {
+  const name = document.getElementById('si-name').value.trim();
+  const monthName = document.getElementById('si-month').value;
+  const day = document.getElementById('si-day').value;
+  const year = document.getElementById('si-year').value;
+  if (!name || !monthName || !day || !year) { flash("Need all three."); return; }
+  const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName)+1;
+
+  state.name = name;
+  state.month = month;
+  state.day = parseInt(day,10);
+  state.year = parseInt(year,10);
+  state.signature = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+  // If they had previously paid (same signature), restore membership
+  try {
+    const memberKey = `kismet:member:${state.signature.seed}`;
+    if (localStorage.getItem(memberKey) === '1') state.isMember = true;
+  } catch(e){}
+  persist();
+  if (state.isMember) { go('dash'); }
+  else { renderReading(); go('reading'); }
+}
+
+function signOut() {
+  state = { name:null, month:null, day:null, year:null, signature:null, isMember:false };
+  try { localStorage.removeItem('kismet:state'); } catch(e){}
+  go('landing');
+}
+
+/* ----- UI HELPERS -------------------------------------------------- */
+
+function toast(msg) {
+  const old = document.querySelector('.toast');
+  if (old) old.remove();
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2400);
+}
+
+function flash(msg) { toast(msg); }
+
+function burst(origin) {
+  if (!origin || !origin.getBoundingClientRect) return;
+  const rect = origin.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  for (let i = 0; i < 12; i++) {
+    const s = document.createElement('div');
+    s.className = 'spark';
+    s.style.left = cx + 'px';
+    s.style.top = cy + 'px';
+    const angle = (i / 12) * Math.PI * 2;
+    const dist = 50 + Math.random() * 60;
+    s.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+    s.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), 1500);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+
+/* On payment success — persist membership against signature seed */
+(function(){
+  const orig = completePayment;
+  window.completePayment = function() {
+    orig();
+    if (state.signature) {
+      try { localStorage.setItem(`kismet:member:${state.signature.seed}`, '1'); } catch(e){}
+    }
+  };
+})();
