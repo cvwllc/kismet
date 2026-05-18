@@ -84,9 +84,14 @@ export default async function handler(req, res) {
 
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
     const exp = Date.now() + 10 * 60 * 1000; // 10 minutes
-    const attempts = 0;
 
-    const payload = { email: emailStr, code, exp, attempts };
+    // Token contains a HASH of the code, never the code itself.
+    // Verification recomputes the same hash from the user-submitted code.
+    const codeHash = crypto.createHmac('sha256', secret)
+      .update(`${emailStr}|${exp}|${code}`)
+      .digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const payload = { email: emailStr, exp, codeHash };
     const payloadB64 = b64urlEncode(JSON.stringify(payload));
     const sig = sign(payloadB64, secret);
     const challengeToken = `${payloadB64}.${sig}`;

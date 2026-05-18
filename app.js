@@ -13,7 +13,7 @@ const SCENES = ['landing','form','divining','reading','paywall','dash','shadow',
 
 /* ----- BOOT --------------------------------------------------------- */
 
-function boot() {
+async function boot() {
   // Generate the starfield
   generateStars();
 
@@ -21,41 +21,109 @@ function boot() {
   populateDOB('in-day', 'in-year');
   populateDOB('cm-day', 'cm-year');
 
-  // Handle return from Stripe Checkout
   const params = new URLSearchParams(location.search);
-  const paidSeed = params.get('paid') === '1' ? params.get('seed') : null;
-  if (paidSeed) {
-    try { localStorage.setItem(`kismet:member:${paidSeed}`, '1'); } catch(e){}
+  const sessionId = params.get('paid') === '1' ? params.get('session_id') : null;
+  const canceled = params.get('canceled') === '1';
+
+  // Strip auth-affecting params from the URL immediately so refresh/share doesn't re-trigger
+  if (sessionId || canceled) {
     history.replaceState({}, '', location.pathname);
   }
-  if (params.get('canceled') === '1') {
-    history.replaceState({}, '', location.pathname);
+  if (canceled) {
     setTimeout(() => toast("No charge — you closed the window."), 400);
   }
 
-  // Restore session if we have one
+  // If we just returned from Stripe Checkout: verify with the server before granting access
+  if (sessionId) {
+    try {
+      const resp = await fetch('/api/verify-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.member && data.identity && data.identity.name) {
+          const id = data.identity;
+          state.name = id.name;
+          state.month = id.month;
+          state.day = id.day;
+          state.year = id.year;
+          state.email = id.email;
+          state.signature = Kismet.getSignature(id.name, id.month, id.day, id.year);
+          state.isMember = true;
+          persist();
+          go('dash');
+          setTimeout(() => toast("You're in. Welcome."), 200);
+          return;
+        }
+      }
+    } catch(e) {
+      // fall through to normal restore
+    }
+  }
+
+  // Restore session from localStorage
   try {
     const raw = localStorage.getItem('kismet:state');
     if (raw) {
       const s = JSON.parse(raw);
       Object.assign(state, s);
       if (state.signature) {
-        // If we just returned from Stripe with a paid seed matching this signature, flip member on
-        if (paidSeed && String(state.signature.seed) === String(paidSeed)) {
-          state.isMember = true;
-          persist();
-        }
-        // If they're a member, drop them in the dashboard. Otherwise re-show reading.
         if (state.isMember) renderDashboard();
         go(state.isMember ? 'dash' : 'reading');
         if (!state.isMember) renderReading();
+
+        // Re-verify cached membership in the background — don't trust localStorage alone
+        if (state.isMember && state.signature && state.signature.seed) {
+          revalidateMembership(state.signature.seed).catch(()=>{});
+        }
       }
+    }
+  } catch(e) {}
+}
+
+async function revalidateMembership(seed) {
+  try {
+    const resp = await fetch('/api/check-membership', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seed })
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (!data.member && state.isMember) {
+      // Stripe says they're no longer a member — downgrade gracefully
+      state.isMember = false;
+      try { localStorage.removeItem(`kismet:member:${seed}`); } catch(e){}
+      persist();
+      toast("Your subscription is no longer active.");
+      setTimeout(() => signOut(), 1800);
     }
   } catch(e) {}
 }
 
 function persist() {
   try { localStorage.setItem('kismet:state', JSON.stringify(state)); } catch(e){}
+}
+
+// Disable a button while an async action runs; show a "Working…" label.
+async function withButtonLock(btn, fn) {
+  if (!btn || btn.dataset.locked === '1') return;
+  const original = btn.innerHTML;
+  btn.dataset.locked = '1';
+  btn.disabled = true;
+  btn.style.opacity = '0.65';
+  btn.style.cursor = 'wait';
+  try {
+    return await fn();
+  } finally {
+    btn.dataset.locked = '';
+    btn.disabled = false;
+    btn.style.opacity = '';
+    btn.style.cursor = '';
+    btn.innerHTML = original;
+  }
 }
 
 function generateStars() {
@@ -436,6 +504,7 @@ async function shareCard() {
 /* ----- PAYMENT (Stripe Checkout) ----------------------------------- */
 
 async function completePayment() {
+  const btn = event && event.target && event.target.closest('button');
   if (!state.signature) { flash("Get your Signature first."); return; }
   const emailInput = document.getElementById('pay-email');
   const email = (emailInput && emailInput.value || '').trim();
@@ -446,30 +515,34 @@ async function completePayment() {
   }
   state.email = email;
   persist();
-  burst(event && event.target);
-  try {
-    const resp = await fetch('/api/create-checkout-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        signatureSeed: state.signature.seed,
-        name: state.signature.name,
-        month: state.month,
-        day: state.day,
-        year: state.year,
-        email
-      })
-    });
-    if (!resp.ok) throw new Error('checkout failed');
-    const data = await resp.json();
-    if (data && data.url) {
-      window.location = data.url;
-    } else {
-      throw new Error('no url returned');
+  burst(btn);
+
+  await withButtonLock(btn, async () => {
+    if (btn) btn.textContent = 'Opening checkout…';
+    try {
+      const resp = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signatureSeed: state.signature.seed,
+          name: state.signature.name,
+          month: state.month,
+          day: state.day,
+          year: state.year,
+          email
+        })
+      });
+      if (!resp.ok) throw new Error('checkout failed');
+      const data = await resp.json();
+      if (data && data.url) {
+        window.location = data.url;
+      } else {
+        throw new Error('no url returned');
+      }
+    } catch (err) {
+      toast("Couldn't reach checkout — try again");
     }
-  } catch (err) {
-    toast("Couldn't reach checkout — try again");
-  }
+  });
 }
 
 /* ----- SIGN IN ----------------------------------------------------- */
@@ -491,6 +564,7 @@ function resetSignInToStep1() {
 }
 
 async function requestSignInCode() {
+  const btn = event && event.target && event.target.closest('button');
   const emailInput = document.getElementById('si-email');
   const email = (emailInput && emailInput.value || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -499,42 +573,45 @@ async function requestSignInCode() {
     return;
   }
 
-  toast("Sending your code…");
-  try {
-    const resp = await fetch('/api/auth-start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    });
-    const data = await resp.json();
-    if (!resp.ok || !data.challengeToken) {
-      if (data && data.notFound) {
-        flash("No account with that email. Get your free Signature first.");
-        setTimeout(() => go('form'), 1200);
+  await withButtonLock(btn, async () => {
+    if (btn) btn.textContent = 'Sending…';
+    try {
+      const resp = await fetch('/api/auth-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.challengeToken) {
+        if (data && data.notFound) {
+          flash("No account with that email. Get your free Signature first.");
+          setTimeout(() => go('form'), 1200);
+          return;
+        }
+        flash(data.error || "Couldn't send the code — try again.");
         return;
       }
-      flash(data.error || "Couldn't send the code — try again.");
-      return;
-    }
-    _signInChallenge = { token: data.challengeToken, email: data.email || email };
+      _signInChallenge = { token: data.challengeToken, email: data.email || email };
 
-    const s1 = document.getElementById('signin-step1');
-    const s2 = document.getElementById('signin-step2');
-    const echo = document.getElementById('si-email-echo');
-    if (echo) echo.textContent = data.email || email;
-    if (s1) s1.classList.add('hidden');
-    if (s2) s2.classList.remove('hidden');
-    setTimeout(() => {
-      const c = document.getElementById('si-code');
-      if (c) c.focus();
-    }, 50);
-    toast("Code sent · check your inbox");
-  } catch (err) {
-    flash("Couldn't send the code — try again.");
-  }
+      const s1 = document.getElementById('signin-step1');
+      const s2 = document.getElementById('signin-step2');
+      const echo = document.getElementById('si-email-echo');
+      if (echo) echo.textContent = data.email || email;
+      if (s1) s1.classList.add('hidden');
+      if (s2) s2.classList.remove('hidden');
+      setTimeout(() => {
+        const c = document.getElementById('si-code');
+        if (c) c.focus();
+      }, 50);
+      toast("Code sent · check your inbox");
+    } catch (err) {
+      flash("Couldn't send the code — try again.");
+    }
+  });
 }
 
 async function verifySignInCode() {
+  const btn = event && event.target && event.target.closest('button');
   if (!_signInChallenge) { resetSignInToStep1(); return; }
   const codeInput = document.getElementById('si-code');
   const code = (codeInput && codeInput.value || '').trim();
@@ -544,48 +621,74 @@ async function verifySignInCode() {
     return;
   }
 
-  toast("Reading the records…");
-  try {
-    const resp = await fetch('/api/auth-verify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeToken: _signInChallenge.token, code })
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      flash(data.error || "Couldn't verify code.");
-      return;
-    }
-    if (!data.member || !data.identity || !data.identity.name) {
-      flash("No active membership found for that email.");
-      return;
-    }
-
-    const id = data.identity;
-    state.name = id.name;
-    state.month = id.month;
-    state.day = id.day;
-    state.year = id.year;
-    state.email = id.email;
-    state.signature = Kismet.getSignature(id.name, id.month, id.day, id.year);
-    state.isMember = true;
-    _signInChallenge = null;
-
+  await withButtonLock(btn, async () => {
+    if (btn) btn.textContent = 'Verifying…';
     try {
-      if (state.signature) localStorage.setItem(`kismet:member:${state.signature.seed}`, '1');
-    } catch(e){}
+      const resp = await fetch('/api/auth-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ challengeToken: _signInChallenge.token, code })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        flash(data.error || "Couldn't verify code.");
+        return;
+      }
+      if (!data.member || !data.identity || !data.identity.name) {
+        flash("No active membership found for that email.");
+        return;
+      }
 
-    persist();
-    go('dash');
-  } catch (err) {
-    flash("Couldn't verify — try again.");
-  }
+      const id = data.identity;
+      state.name = id.name;
+      state.month = id.month;
+      state.day = id.day;
+      state.year = id.year;
+      state.email = id.email;
+      state.signature = Kismet.getSignature(id.name, id.month, id.day, id.year);
+      state.isMember = true;
+      _signInChallenge = null;
+
+      try {
+        if (state.signature) localStorage.setItem(`kismet:member:${state.signature.seed}`, '1');
+      } catch(e){}
+
+      persist();
+      go('dash');
+    } catch (err) {
+      flash("Couldn't verify — try again.");
+    }
+  });
 }
 
 function signOut() {
+  const seed = state.signature && state.signature.seed;
   state = { name:null, month:null, day:null, year:null, email:null, signature:null, isMember:false };
-  try { localStorage.removeItem('kismet:state'); } catch(e){}
+  try {
+    localStorage.removeItem('kismet:state');
+    if (seed) localStorage.removeItem(`kismet:member:${seed}`);
+  } catch(e){}
   go('landing');
+}
+
+async function openBillingPortal() {
+  const btn = event && event.target && event.target.closest('button');
+  if (!state.email) { flash("Sign in first."); return; }
+  await withButtonLock(btn, async () => {
+    if (btn) btn.textContent = 'Opening…';
+    try {
+      const resp = await fetch('/api/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: state.email })
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.url) { flash(data.error || "Couldn't open billing."); return; }
+      window.location = data.url;
+    } catch(err) {
+      flash("Couldn't open billing — try again.");
+    }
+  });
 }
 
 /* ----- UI HELPERS -------------------------------------------------- */

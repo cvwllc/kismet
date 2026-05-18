@@ -138,6 +138,28 @@
     color: var(--gold);
   }
 
+  /* footer */
+  .site-footer {
+    margin-top: 80px;
+    padding: 28px 20px 40px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    border-top: 1px solid rgba(237,228,211,.08);
+  }
+  .site-footer a {
+    color: var(--ink-dim);
+    text-decoration: none;
+    padding: 4px 10px;
+    transition: color .2s;
+  }
+  .site-footer a:hover { color: var(--gold-2); }
+  .site-footer .dot-sep { color: rgba(237,228,211,.25); margin: 0 2px; }
+  .site-footer .copy { padding: 4px 10px; }
+
   /* ========== LANDING ========== */
   .hero {
     text-align: center;
@@ -1027,6 +1049,10 @@
             <div class="t-sub">View card</div>
           </button>
         </div>
+
+        <div style="margin-top: 38px; text-align: center;">
+          <button class="text-link" onclick="openBillingPortal()">Manage subscription · billing</button>
+        </div>
       </div>
     </div>
   </section>
@@ -1130,6 +1156,18 @@
       </div>
     </div>
   </section>
+
+  <footer class="site-footer">
+    <span class="dot-sep">·</span>
+    <a href="/terms.html">Terms</a>
+    <span class="dot-sep">·</span>
+    <a href="/privacy.html">Privacy</a>
+    <span class="dot-sep">·</span>
+    <a href="mailto:hello@kismet.cards">Contact</a>
+    <span class="dot-sep">·</span>
+    <span class="copy">© Kismet</span>
+    <span class="dot-sep">·</span>
+  </footer>
 
 </div>
 

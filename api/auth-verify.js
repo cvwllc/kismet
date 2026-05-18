@@ -83,11 +83,20 @@ export default async function handler(req, res) {
     if (!payload.exp || Date.now() > payload.exp) {
       return res.status(401).json({ error: 'code expired — request a new one' });
     }
-    if (String(code).trim() !== String(payload.code)) {
-      return res.status(401).json({ error: 'incorrect code' });
+    if (!payload.email || !payload.codeHash) {
+      return res.status(400).json({ error: 'malformed token' });
     }
 
     const emailStr = String(payload.email || '').toLowerCase();
+
+    // Recompute the HMAC of the submitted code with the email+exp; compare to token's codeHash.
+    const submitted = String(code).trim();
+    const expectedHash = crypto.createHmac('sha256', secret)
+      .update(`${emailStr}|${payload.exp}|${submitted}`)
+      .digest('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    if (!timingSafeEq(expectedHash, payload.codeHash)) {
+      return res.status(401).json({ error: 'incorrect code' });
+    }
     const result = await lookupIdentityByEmail(emailStr);
     return res.status(200).json({ email: emailStr, ...result });
   } catch (err) {
