@@ -58,8 +58,15 @@ async function boot() {
           return;
         }
       }
+      // Verification didn't pan out for some reason — show a fallback path so the customer
+      // who just paid isn't left confused at the landing page.
+      go('signin');
+      setTimeout(() => toast("Payment received — sign in with your email to finish."), 600);
+      return;
     } catch(e) {
-      // fall through to normal restore
+      go('signin');
+      setTimeout(() => toast("Payment received — sign in with your email to finish."), 600);
+      return;
     }
   }
 

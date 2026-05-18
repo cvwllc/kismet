@@ -254,8 +254,17 @@ const Kismet = (() => {
     "Stop checking. The thing you're checking for cannot arrive until you stop. This is mathematically true for you specifically."
   ];
 
+  // Build YYYY-MM-DD in the user's LOCAL timezone (not UTC) so daily readings
+  // roll over at the user's local midnight, not at 12am UTC.
+  function localDateStr(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
   function generateDailyReading(sig, date = new Date()) {
-    const dateStr = date.toISOString().slice(0,10);
+    const dateStr = localDateStr(date);
     const seed = dailySeed(sig, dateStr);
     const rng = mulberry32(seed);
 
