@@ -1,0 +1,14 @@
+# Kismet — robots.txt
+# All search engines are welcome on the public pages. API routes are not.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Static brand assets stay crawlable for image indexing.
+Allow: /og-image.png
+Allow: /favicon.svg
+Allow: /favicon-32.png
+Allow: /apple-touch-icon.png
+
+Sitemap: https://kismet.cards/sitemap.xml
