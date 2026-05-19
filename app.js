@@ -614,38 +614,112 @@ function _fileName(suffix = 'signature') {
   return `kismet-${n || 'card'}-${suffix}.png`;
 }
 
+function _showImagePreview(blobUrl, fileName) {
+  const existing = document.getElementById('kismet-image-preview');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'kismet-image-preview';
+  overlay.style.cssText =
+    'position:fixed;inset:0;z-index:9999;background:rgba(10,6,18,.96);' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;';
+
+  const hint = document.createElement('div');
+  hint.textContent = 'Long-press the image — then "Save to Photos"';
+  hint.style.cssText =
+    'font-family:JetBrains Mono,Courier New,monospace;font-size:11px;letter-spacing:.25em;' +
+    'color:#f0c674;text-transform:uppercase;margin-bottom:18px;text-align:center;';
+
+  const img = document.createElement('img');
+  img.src = blobUrl;
+  img.alt = 'Your Kismet card';
+  img.style.cssText =
+    'max-width:100%;max-height:65vh;border-radius:14px;' +
+    'box-shadow:0 20px 60px rgba(0,0,0,.6);';
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:10px;margin-top:22px;';
+
+  const dl = document.createElement('a');
+  dl.href = blobUrl; dl.download = fileName; dl.textContent = 'Download';
+  dl.style.cssText =
+    'padding:11px 22px;border:1px solid rgba(237,228,211,.25);border-radius:999px;' +
+    'background:transparent;color:#ede4d3;font-family:JetBrains Mono,monospace;font-size:11px;' +
+    'letter-spacing:.2em;text-transform:uppercase;text-decoration:none;cursor:pointer;';
+
+  const done = document.createElement('button');
+  done.textContent = 'Done';
+  done.style.cssText =
+    'padding:11px 22px;border:1px solid rgba(237,228,211,.25);border-radius:999px;' +
+    'background:transparent;color:#ede4d3;font-family:JetBrains Mono,monospace;font-size:11px;' +
+    'letter-spacing:.2em;text-transform:uppercase;cursor:pointer;';
+  done.onclick = () => {
+    overlay.remove();
+    try { URL.revokeObjectURL(blobUrl); } catch(e){}
+  };
+
+  actions.appendChild(dl);
+  actions.appendChild(done);
+  overlay.appendChild(hint);
+  overlay.appendChild(img);
+  overlay.appendChild(actions);
+  document.body.appendChild(overlay);
+}
+
 async function _saveCardEl(elId, suffix, title) {
   const sig = state.signature;
   if (!sig) return;
   toast("Painting the card…");
+
+  let blob;
   try {
-    const blob = await renderCardToBlob(elId);
-    if (!blob) { toast("Image render failed — try a screenshot"); return; }
+    blob = await renderCardToBlob(elId);
+  } catch (err) {
+    console.error('renderCardToBlob threw', err);
+    blob = null;
+  }
+  if (!blob) {
+    toast("Image render failed — try a screenshot");
+    return;
+  }
 
-    const fileName = _fileName(suffix);
-    const file = new File([blob], fileName, { type: 'image/png' });
+  const fileName = _fileName(suffix);
 
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+  // Build File for the share API. If File constructor isn't available, share API isn't either.
+  let file = null;
+  try {
+    file = new File([blob], fileName, { type: 'image/png' });
+  } catch (e) {
+    console.warn('File constructor unavailable', e);
+  }
+
+  // Try Web Share API with files (Android Chrome, modern iOS where gesture survived).
+  if (file && navigator.share) {
+    let canShareFiles = false;
+    try { canShareFiles = !!(navigator.canShare && navigator.canShare({ files: [file] })); } catch(e) {
+      console.warn('canShare threw', e); canShareFiles = false;
+    }
+    if (canShareFiles) {
       try {
         await navigator.share({ files: [file], title });
         return;
-      } catch(e) {
-        // User canceled the share sheet → don't fall through (don't auto-download)
+      } catch (e) {
         if (e && e.name === 'AbortError') return;
-        // Other share errors → fall through to download
+        console.warn('share() rejected, falling back', e && e.name, e && e.message);
       }
     }
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = fileName;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast("Saved to your downloads");
-  } catch (err) {
-    console.error('save card failed', err);
-    toast("Couldn't save — try a screenshot");
   }
+
+  // Universal fallback: inline preview the user can long-press to save (mobile) or download from.
+  let blobUrl = null;
+  try {
+    blobUrl = URL.createObjectURL(blob);
+  } catch (e) {
+    console.error('createObjectURL failed', e);
+    toast("Couldn't save — try a screenshot");
+    return;
+  }
+  _showImagePreview(blobUrl, fileName);
 }
 
 async function _shareCardEl(elId, suffix, title, text) {
