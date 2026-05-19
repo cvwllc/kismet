@@ -570,16 +570,43 @@ function runCompat() {
 /* ----- SHARE + SCREENSHOT ------------------------------------------ */
 
 async function renderCardToBlob(elId = 'reading-card') {
-  if (typeof html2canvas === 'undefined') return null;
+  if (typeof html2canvas === 'undefined') {
+    console.error('html2canvas not loaded');
+    return null;
+  }
   const card = document.getElementById(elId);
-  if (!card) return null;
-  const canvas = await html2canvas(card, {
-    backgroundColor: null,
-    scale: Math.min(3, (window.devicePixelRatio || 1) * 2),
-    useCORS: true,
-    logging: false
-  });
-  return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+  if (!card) { console.error('card element not found:', elId); return null; }
+
+  // Wait for all fonts to be ready so the captured PNG isn't a fallback-font render.
+  if (document.fonts && document.fonts.ready) {
+    try { await document.fonts.ready; } catch(e){}
+  }
+
+  try {
+    const canvas = await html2canvas(card, {
+      // Solid background so the shared PNG is opaque & rich (transparent PNGs look bad on most apps)
+      backgroundColor: '#140918',
+      scale: Math.min(3, (window.devicePixelRatio || 1) * 2),
+      useCORS: true,
+      logging: false,
+      imageTimeout: 8000,
+      // html2canvas has poor support for ::before with SVG data-URIs + mix-blend-mode.
+      // Strip those decorations on the cloned DOM only — the live card keeps them.
+      onclone: (doc) => {
+        const style = doc.createElement('style');
+        style.textContent = `
+          .reading-card::before,
+          .today::before,
+          .compat-card::before { display: none !important; }
+        `;
+        doc.head.appendChild(style);
+      }
+    });
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+  } catch (err) {
+    console.error('html2canvas render failed', err);
+    return null;
+  }
 }
 
 function _fileName(suffix = 'signature') {
@@ -593,14 +620,20 @@ async function _saveCardEl(elId, suffix, title) {
   toast("Painting the card…");
   try {
     const blob = await renderCardToBlob(elId);
-    if (!blob) { toast("Try a screenshot — saver didn't load"); return; }
+    if (!blob) { toast("Image render failed — try a screenshot"); return; }
 
     const fileName = _fileName(suffix);
     const file = new File([blob], fileName, { type: 'image/png' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title }); return; }
-      catch(e) { /* canceled — fall through to download */ }
+      try {
+        await navigator.share({ files: [file], title });
+        return;
+      } catch(e) {
+        // User canceled the share sheet → don't fall through (don't auto-download)
+        if (e && e.name === 'AbortError') return;
+        // Other share errors → fall through to download
+      }
     }
 
     const url = URL.createObjectURL(blob);
@@ -610,6 +643,7 @@ async function _saveCardEl(elId, suffix, title) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast("Saved to your downloads");
   } catch (err) {
+    console.error('save card failed', err);
     toast("Couldn't save — try a screenshot");
   }
 }
