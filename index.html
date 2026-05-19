@@ -151,6 +151,39 @@
     color: var(--gold);
   }
 
+  /* Sign-in help disclosure */
+  .signin-help {
+    margin-top: 26px;
+    border-top: 1px solid rgba(237,228,211,.08);
+    padding-top: 18px;
+    font-family: var(--serif);
+    font-size: 14px;
+    color: var(--ink-dim);
+  }
+  .signin-help summary {
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--gold-2);
+    list-style: none;
+    padding: 6px 0;
+    transition: color .2s;
+  }
+  .signin-help summary:hover { color: var(--gold); }
+  .signin-help summary::-webkit-details-marker { display: none; }
+  .signin-help summary::before { content: "+ "; opacity: .7; }
+  .signin-help[open] summary::before { content: "− "; }
+  .signin-help ul {
+    margin: 14px 0 0;
+    padding-left: 20px;
+    line-height: 1.6;
+  }
+  .signin-help li { margin-bottom: 6px; }
+  .signin-help a { color: var(--gold-2); text-decoration: underline; text-underline-offset: 3px; }
+  .signin-help a:hover { color: var(--gold); }
+
   /* footer */
   .site-footer {
     margin-top: 80px;
@@ -1235,7 +1268,18 @@
           <input id="si-code" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="font-family: var(--mono); font-size: 22px; letter-spacing: .35em; text-align: center;" />
         </div>
         <button class="cta" style="width:100%; justify-content:center;" onclick="verifySignInCode()">Verify <span class="arr">→</span></button>
-        <p class="sub" style="margin-top: 22px; font-size: 13px; opacity: .7;">Didn't get it? <a href="#" onclick="resetSignInToStep1(); return false;" style="color: var(--gold-2);">Try a different email →</a></p>
+        <details class="signin-help">
+          <summary>Didn't get the code?</summary>
+          <ul>
+            <li>Check your spam / promotions folder.</li>
+            <li>Gmail can delay by a minute or two — wait, then refresh.</li>
+            <li>Make sure you're using the same email you typed at checkout.</li>
+            <li>Still nothing? Email <a href="mailto:hello@kismet.cards">hello@kismet.cards</a> — we'll resend manually.</li>
+          </ul>
+          <p style="margin-top: 14px;">
+            <a href="#" onclick="resetSignInToStep1(); return false;">← Try a different email</a>
+          </p>
+        </details>
       </div>
     </div>
   </section>
