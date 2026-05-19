@@ -569,43 +569,49 @@ function runCompat() {
 
 /* ----- SHARE + SCREENSHOT ------------------------------------------ */
 
+// Returns { blob } on success or { error: string } on any failure.
+// The error text is surfaced into a toast so the user can see what failed without devtools.
 async function renderCardToBlob(elId = 'reading-card') {
   if (typeof html2canvas === 'undefined') {
-    console.error('html2canvas not loaded');
-    return null;
+    return { error: 'html2canvas not loaded' };
   }
   const card = document.getElementById(elId);
-  if (!card) { console.error('card element not found:', elId); return null; }
+  if (!card) return { error: 'card element missing: ' + elId };
 
-  // Wait for all fonts to be ready so the captured PNG isn't a fallback-font render.
+  // Inject the style override GLOBALLY (not via onclone, which can run too late
+  // on iOS Safari where html2canvas parses the source CSS before applying onclone).
+  // This hides the noise/blend pseudo-elements html2canvas can't handle.
+  const tempStyle = document.createElement('style');
+  tempStyle.textContent =
+    '.reading-card::before,.today::before,.compat-card::before{display:none !important;}';
+  document.head.appendChild(tempStyle);
+
+  // Wait for fonts so the captured PNG isn't a fallback-font render.
   if (document.fonts && document.fonts.ready) {
     try { await document.fonts.ready; } catch(e){}
   }
 
   try {
     const canvas = await html2canvas(card, {
-      // Solid background so the shared PNG is opaque & rich (transparent PNGs look bad on most apps)
       backgroundColor: '#140918',
-      scale: Math.min(3, (window.devicePixelRatio || 1) * 2),
+      scale: 2, // Capped at 2 so iOS Safari's max canvas area (~16M px) isn't exceeded.
       useCORS: true,
+      allowTaint: true,
       logging: false,
       imageTimeout: 8000,
-      // html2canvas has poor support for ::before with SVG data-URIs + mix-blend-mode.
-      // Strip those decorations on the cloned DOM only — the live card keeps them.
-      onclone: (doc) => {
-        const style = doc.createElement('style');
-        style.textContent = `
-          .reading-card::before,
-          .today::before,
-          .compat-card::before { display: none !important; }
-        `;
-        doc.head.appendChild(style);
-      }
+      foreignObjectRendering: false
     });
-    return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
+    if (!canvas) return { error: 'no canvas returned' };
+    return await new Promise(resolve => {
+      canvas.toBlob(
+        (blob) => resolve(blob ? { blob } : { error: 'toBlob returned null' }),
+        'image/png', 0.95
+      );
+    });
   } catch (err) {
-    console.error('html2canvas render failed', err);
-    return null;
+    return { error: String((err && err.message) || err).slice(0, 140) };
+  } finally {
+    tempStyle.remove();
   }
 }
 
@@ -671,17 +677,18 @@ async function _saveCardEl(elId, suffix, title) {
   if (!sig) return;
   toast("Painting the card…");
 
-  let blob;
+  let result;
   try {
-    blob = await renderCardToBlob(elId);
+    result = await renderCardToBlob(elId);
   } catch (err) {
-    console.error('renderCardToBlob threw', err);
-    blob = null;
+    result = { error: String((err && err.message) || err).slice(0, 140) };
   }
-  if (!blob) {
-    toast("Image render failed — try a screenshot");
+  if (!result || !result.blob) {
+    const msg = result && result.error ? `Render failed: ${result.error}` : 'Image render failed — try a screenshot';
+    toast(msg);
     return;
   }
+  const blob = result.blob;
 
   const fileName = _fileName(suffix);
 
@@ -726,22 +733,46 @@ async function _shareCardEl(elId, suffix, title, text) {
   const sig = state.signature;
   if (!sig) return;
   const url = 'https://kismet.cards';
+
+  // Try image share first.
+  let blob = null;
   try {
-    const blob = await renderCardToBlob(elId);
-    if (blob && navigator.canShare) {
-      const file = new File([blob], _fileName(suffix), { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title, text: `${text} ${url}` }); return; }
-        catch(e) { /* canceled or unsupported — fall through */ }
+    const r = await renderCardToBlob(elId);
+    if (r && r.blob) blob = r.blob;
+  } catch(e){}
+
+  if (blob && navigator.share) {
+    let file = null;
+    try { file = new File([blob], _fileName(suffix), { type: 'image/png' }); } catch(e){}
+    let canShareFiles = false;
+    if (file && navigator.canShare) {
+      try { canShareFiles = !!navigator.canShare({ files: [file] }); } catch(e){}
+    }
+    if (canShareFiles) {
+      try { await navigator.share({ files: [file], title, text: `${text} ${url}` }); return; }
+      catch(e) {
+        if (e && e.name === 'AbortError') return;
       }
     }
-  } catch(e){}
+  }
+
+  // Fallback 1: text/url Web Share
   if (navigator.share) {
     try { await navigator.share({ title, text, url }); return; }
-    catch(e){}
+    catch(e) {
+      if (e && e.name === 'AbortError') return;
+    }
   }
-  try { await navigator.clipboard.writeText(`${text} ${url}`); toast("Link copied — paste anywhere"); }
-  catch(e) { toast("Long-press the card to save"); }
+
+  // Fallback 2: clipboard
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast("Link copied — paste anywhere"); return; }
+  catch(e){}
+
+  // Last resort: inline preview the image
+  if (blob) {
+    try { _showImagePreview(URL.createObjectURL(blob), _fileName(suffix)); return; } catch(e){}
+  }
+  toast("Long-press the card to save");
 }
 
 async function saveCard() {
