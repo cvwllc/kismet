@@ -288,6 +288,20 @@ function submitForm() {
     return;
   }
 
+  // 18+ age gate. Matches the declaration in Terms and Privacy.
+  // This is a soft self-declared check — a determined minor could lie — but it's the
+  // standard pattern (Snapchat, TikTok, etc.) and is what regulators expect.
+  const now = new Date();
+  let age = now.getFullYear() - yearNum;
+  const passedBirthdayThisYear =
+    (now.getMonth() + 1) > month ||
+    ((now.getMonth() + 1) === month && now.getDate() >= dayNum);
+  if (!passedBirthdayThisYear) age -= 1;
+  if (age < 18) {
+    flash("Kismet is for 18 and up. Come back another time.");
+    return;
+  }
+
   state.name = name;
   state.month = month;
   state.day = dayNum;
