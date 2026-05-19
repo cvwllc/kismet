@@ -114,6 +114,33 @@ function persist() {
   try { localStorage.setItem('kismet:state', JSON.stringify(state)); } catch(e){}
 }
 
+// Track how many consecutive days a member has opened the dashboard. Builds the daily-return habit.
+function bumpStreak() {
+  if (!state.signature || !state.signature.seed) return { streak: 0 };
+  const key = `kismet:streak:${state.signature.seed}`;
+  const today = new Date();
+  const yyyymmdd = (d) => `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+  const todayStr = yyyymmdd(today);
+
+  let s;
+  try { s = JSON.parse(localStorage.getItem(key) || 'null'); } catch(e) { s = null; }
+  if (!s) s = { lastDate: null, streak: 0 };
+
+  if (s.lastDate === todayStr) {
+    return s; // already counted today
+  }
+
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  if (s.lastDate === yyyymmdd(yesterday)) {
+    s.streak = (s.streak || 0) + 1;
+  } else {
+    s.streak = 1;
+  }
+  s.lastDate = todayStr;
+  try { localStorage.setItem(key, JSON.stringify(s)); } catch(e){}
+  return s;
+}
+
 // HTML-escape user-controlled text before interpolating into innerHTML.
 function esc(s) {
   return String(s == null ? '' : s)
@@ -343,7 +370,10 @@ function renderDashboard() {
   if (cornerEl) cornerEl.textContent = `${sig.glyph} NR.${sig.sigNum}`;
   const archEl = document.getElementById('dash-archetype');
   if (archEl) archEl.textContent = sig.archetype;
-  document.getElementById('dash-sig').textContent = `№ ${sig.soulNumber} · ${sig.element}`;
+
+  const streak = bumpStreak();
+  const streakLabel = streak.streak > 1 ? ` · Day ${streak.streak}` : '';
+  document.getElementById('dash-sig').textContent = `№ ${sig.soulNumber} · ${sig.element}${streakLabel}`;
 
   const daily = Kismet.generateDailyReading(sig, today);
   document.getElementById('dash-headline').textContent = daily.headline;
@@ -357,11 +387,18 @@ function renderShadow() {
   if (!sig) return;
   const sh = Kismet.generateShadowReading(sig);
   const now = new Date();
-  document.getElementById('shadow-week').textContent =
-    now.toLocaleDateString('en-US',{month:'long', day:'numeric'});
+  const weekStr = now.toLocaleDateString('en-US',{month:'long', day:'numeric'});
+  document.getElementById('shadow-week').textContent = weekStr;
+
+  const cornerEl = document.getElementById('shadow-corner-l');
+  if (cornerEl) cornerEl.textContent = `${sig.glyph} NR.${sig.sigNum}`;
+  const dateEl = document.getElementById('shadow-date');
+  if (dateEl) dateEl.textContent = `Week of ${weekStr}`;
   document.getElementById('shadow-pat').textContent = sh.pattern;
   document.getElementById('shadow-headline').textContent = sh.headline;
   document.getElementById('shadow-body').innerHTML = `<p>${sh.body}</p>`;
+  const footEl = document.getElementById('shadow-foot');
+  if (footEl) footEl.textContent = `${sig.archetype} · № ${sig.soulNumber}`;
 }
 
 /* ----- RENDER: YEAR AHEAD ------------------------------------------ */
@@ -370,6 +407,21 @@ function renderYear() {
   const sig = state.signature;
   if (!sig) return;
   const months = Kismet.generateYearAhead(sig);
+
+  // Card brand elements
+  const cornerEl = document.getElementById('year-corner-l');
+  if (cornerEl) cornerEl.textContent = `${sig.glyph} NR.${sig.sigNum}`;
+  const dateEl = document.getElementById('year-date');
+  if (dateEl) {
+    const startY = months[0].year;
+    const endY = months[11].year;
+    dateEl.textContent = startY === endY ? `12 months · ${startY}` : `12 months · ${startY}–${endY}`;
+  }
+  const archEl = document.getElementById('year-archetype');
+  if (archEl) archEl.textContent = sig.archetype;
+  const footEl = document.getElementById('year-foot');
+  if (footEl) footEl.textContent = `№ ${sig.soulNumber} · ${sig.element}`;
+
   const grid = document.getElementById('year-grid');
   grid.innerHTML = '';
   months.forEach(m => {
@@ -383,19 +435,27 @@ function renderYear() {
     else color = `rgba(196,107,138,${opacity})`;
     cell.style.background = color;
     if (m.bucket === 'high') cell.style.boxShadow = '0 0 20px rgba(240,198,116,.4)';
-    cell.innerHTML = `<div class="m">${m.label}</div>`;
+    cell.innerHTML = `<div class="m">${esc(m.label)}</div>`;
     grid.appendChild(cell);
   });
-  // Readouts
+
+  // Card summary: highlight the peak month
+  const peak = months.find(m => m.bucket === 'high') || months[0];
+  const summary = document.getElementById('year-summary');
+  if (summary) {
+    summary.innerHTML = `<em>${esc(peak.full)}</em> is the loud one — ${esc(peak.theme)}.`;
+  }
+
+  // Detailed readouts (outside the share card)
   const out = document.getElementById('year-readouts');
   out.innerHTML = months.map(m => `
-    <div class="today" style="margin-bottom: 12px;">
+    <div class="month-readout">
       <div class="label">
-        <span>${m.full} ${m.year}</span>
+        <span>${esc(m.full)} ${esc(m.year)}</span>
         <span>${'·'.repeat(m.intensity)}${' '.repeat(5-m.intensity)}</span>
       </div>
-      <div class="headline" style="font-size:20px;">${capitalize(m.theme)}</div>
-      <div class="body" style="font-size:15px;">${m.note}</div>
+      <div class="headline">${esc(capitalize(m.theme))}</div>
+      <div class="body">${esc(m.note)}</div>
     </div>
   `).join('');
 }
@@ -424,51 +484,72 @@ function runCompat() {
   }
   const sig2 = Kismet.getSignature(name, month, dayNum, yearNum);
 
+  const out = document.getElementById('compat-out');
+  out.classList.remove('hidden');
+
   // Easter egg: same signature seed = trying to read yourself
   if (sig2.seed === sig1.seed) {
-    const out = document.getElementById('compat-out');
-    out.classList.remove('hidden');
     out.innerHTML = `
-      <div class="compat-card">
-        <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${esc(sig1.name)} × ${esc(sig1.name)}</div>
-        <div class="pct" style="font-size: 56px;">∞<span class="pc" style="font-size: 22px; margin-left: 6px;">/ ∞</span></div>
-        <div class="verdict" style="font-style: italic;">A mirror, not a match.</div>
+      <div class="compat-card" id="compat-card">
+        <div class="t-corner-l">${esc(sig1.glyph)} NR.${esc(sig1.sigNum)}</div>
+        <div class="t-corner-r">Compat</div>
+        <div class="c-pair">${esc(sig1.name)} × ${esc(sig1.name)}</div>
+        <div class="pct" style="font-size: 80px;">∞<span class="pc" style="font-size: 26px; margin-left: 6px;">/ ∞</span></div>
+        <div class="verdict">A mirror, not a match.</div>
         <div class="reading">You can't measure compatibility with the one keeping score. The cosmos doesn't divide you from yourself — but the fact that you tried is interesting. What were you hoping to find? Run someone you can't predict next.</div>
-        <div style="display:flex; justify-content:center; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
-          <div style="text-align:center;">
-            <div style="font-family: var(--display); font-style: italic; font-size: 22px; color: var(--gold-2);">${esc(sig1.archetype)}</div>
-            <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">facing themselves</div>
+        <div class="c-pair-archetypes" style="justify-content:center;">
+          <div>
+            <div class="arch-name">${esc(sig1.archetype)}</div>
+            <div class="arch-sub">facing themselves</div>
           </div>
         </div>
+        <div class="c-footer">
+          <span>${esc(sig1.element)} · № ${esc(sig1.soulNumber)}</span>
+          <span class="t-stamp">kismet.cards</span>
+        </div>
+      </div>
+      <div class="daily-actions">
+        <button onclick="shareCompatCard()">⤴ Share</button>
+        <button onclick="saveCompatCard()">⤓ Save image</button>
       </div>
     `;
+    _lastCompat = { sig1, sig2, score: '∞', verdict: 'A mirror, not a match.' };
     out.scrollIntoView({behavior:'smooth', block:'center'});
     return;
   }
 
   const c = Kismet.getCompatibility(sig1, sig2);
 
-  const out = document.getElementById('compat-out');
-  out.classList.remove('hidden');
   out.innerHTML = `
-    <div class="compat-card">
-      <div style="font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 8px;">${esc(sig1.name)} × ${esc(sig2.name)}</div>
+    <div class="compat-card" id="compat-card">
+      <div class="t-corner-l">${esc(sig1.glyph)} NR.${esc(sig1.sigNum)}</div>
+      <div class="t-corner-r">Compat</div>
+      <div class="c-pair">${esc(sig1.name)} × ${esc(sig2.name)}</div>
       <div class="pct">${esc(c.score)}<span class="pc">%</span></div>
       <div class="verdict">${esc(c.verdict)}</div>
       <div class="reading">${esc(c.reading)}</div>
-      <div style="display:flex; gap: 16px; justify-content: space-around; margin-top: 22px; padding-top: 22px; border-top: 1px solid rgba(237,228,211,.1);">
+      <div class="c-pair-archetypes">
         <div>
-          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${esc(sig1.archetype)}</div>
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${esc(sig1.name)}</div>
+          <div class="arch-name">${esc(sig1.archetype)}</div>
+          <div class="arch-sub">${esc(sig1.name)}</div>
         </div>
-        <div style="font-family: var(--mono); color: var(--gold); align-self: center;">×</div>
+        <div class="x-mark">×</div>
         <div>
-          <div style="font-family: var(--display); font-style: italic; font-size: 20px; color: var(--gold-2);">${esc(sig2.archetype)}</div>
-          <div style="font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--ink-dim); text-transform: uppercase; margin-top: 4px;">${esc(sig2.name)}</div>
+          <div class="arch-name">${esc(sig2.archetype)}</div>
+          <div class="arch-sub">${esc(sig2.name)}</div>
         </div>
       </div>
+      <div class="c-footer">
+        <span>${esc(sig1.element)} ↔ ${esc(sig2.element)}</span>
+        <span class="t-stamp">kismet.cards</span>
+      </div>
+    </div>
+    <div class="daily-actions">
+      <button onclick="shareCompatCard()">⤴ Share</button>
+      <button onclick="saveCompatCard()">⤓ Save image</button>
     </div>
   `;
+  _lastCompat = { sig1, sig2, score: c.score, verdict: c.verdict };
   out.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
@@ -566,6 +647,46 @@ async function shareDailyCard() {
     `My Kismet reading for ${today} — find yours:`);
 }
 
+async function saveShadowCard() {
+  burst(event && event.target);
+  return _saveCardEl('shadow-card', 'shadow', 'My Kismet Shadow Reading');
+}
+
+async function shareShadowCard() {
+  const sig = state.signature; if (!sig) return;
+  burst(event && event.target);
+  return _shareCardEl('shadow-card', 'shadow', 'My Kismet Shadow Reading',
+    `Kismet read my shadow this week. Brutal. Find yours:`);
+}
+
+async function saveYearCard() {
+  burst(event && event.target);
+  return _saveCardEl('year-card', 'year', 'My Kismet Year Ahead');
+}
+
+async function shareYearCard() {
+  const sig = state.signature; if (!sig) return;
+  burst(event && event.target);
+  return _shareCardEl('year-card', 'year', 'My Kismet Year Ahead',
+    `My next 12 months, mapped. Find yours:`);
+}
+
+async function saveCompatCard() {
+  burst(event && event.target);
+  return _saveCardEl('compat-card', 'compat', 'My Kismet Compatibility');
+}
+
+async function shareCompatCard() {
+  if (!_lastCompat) return;
+  burst(event && event.target);
+  const { sig2, score, verdict } = _lastCompat;
+  const safeName = String(sig2.name || 'They').replace(/[<>]/g, '');
+  const text = score === '∞'
+    ? `Kismet refused to score me against myself. "A mirror, not a match." Find yours:`
+    : `${safeName} and I are ${score}% on Kismet. The math saw it before we did. Run yours:`;
+  return _shareCardEl('compat-card', 'compat', 'My Kismet Compatibility', text);
+}
+
 /* ----- PAYMENT (Stripe Checkout) ----------------------------------- */
 
 async function completePayment() {
@@ -618,6 +739,7 @@ async function completePayment() {
 /* ----- SIGN IN ----------------------------------------------------- */
 
 let _signInChallenge = null;
+let _lastCompat = null;
 
 function resetSignInToStep1() {
   _signInChallenge = null;
