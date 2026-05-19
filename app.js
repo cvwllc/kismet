@@ -249,12 +249,23 @@ function submitForm() {
   }
 
   const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName) + 1;
+  const dayNum = parseInt(day, 10);
+  const yearNum = parseInt(year, 10);
+
+  // Date validity: rule out things like Feb 30, Apr 31, etc. JavaScript will silently roll
+  // these over (Feb 30 → Mar 2), so we construct the date and verify it still has the
+  // month/day we expect.
+  const probe = new Date(yearNum, month - 1, dayNum);
+  if (probe.getFullYear() !== yearNum || probe.getMonth() !== month - 1 || probe.getDate() !== dayNum) {
+    flash(`${monthName} ${dayNum} isn't a real date. Try again.`);
+    return;
+  }
 
   state.name = name;
   state.month = month;
-  state.day = parseInt(day, 10);
-  state.year = parseInt(year, 10);
-  state.signature = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+  state.day = dayNum;
+  state.year = yearNum;
+  state.signature = Kismet.getSignature(name, month, dayNum, yearNum);
   persist();
 
   go('divining');
@@ -398,7 +409,14 @@ function runCompat() {
     flash("Need their full info to run the math."); return;
   }
   const month = ["January","February","March","April","May","June","July","August","September","October","November","December"].indexOf(monthName)+1;
-  const sig2 = Kismet.getSignature(name, month, parseInt(day,10), parseInt(year,10));
+  const dayNum = parseInt(day,10);
+  const yearNum = parseInt(year,10);
+  const probe = new Date(yearNum, month-1, dayNum);
+  if (probe.getFullYear() !== yearNum || probe.getMonth() !== month-1 || probe.getDate() !== dayNum) {
+    flash(`${monthName} ${dayNum} isn't a real date.`);
+    return;
+  }
+  const sig2 = Kismet.getSignature(name, month, dayNum, yearNum);
 
   // Easter egg: same signature seed = trying to read yourself
   if (sig2.seed === sig1.seed) {
