@@ -233,11 +233,39 @@ const Kismet = (() => {
     "Today is not the day to %DONT%."
   ];
 
-  const SHAPES = ["a question","a soft no","an open door","a held breath","a long sentence","a closed loop","a returning thought","a borrowed coat","a thrown stone","a shut window","a clean kitchen","a missed call"];
-  const SPEEDS = ["slowly, then all at once","like it owes you something","at the pace of a slow song","like a Sunday that thinks it's a Monday","at half-speed","like it knows you're watching"];
-  const TENDENCIES = ["start quietly and pick up","front-load","ask things of you","reward the second attempt","work in your favor if you go first","reveal themselves only after dinner"];
-  const TIMES = ["10am","noon","3pm","you check your phone for the first time","you talk to the first person who is not yourself"];
-  const DONTS = ["explain yourself twice","accept the first offer","wait for permission","reread the message","start a new thing","finish someone else's sentence"];
+  const SHAPES = [
+    "a question","a soft no","an open door","a held breath","a long sentence","a closed loop",
+    "a returning thought","a borrowed coat","a thrown stone","a shut window","a clean kitchen","a missed call",
+    "an unsent text","a slow exhale","a corner you keep almost turning","a sentence with no period",
+    "a pocket you keep checking","a stairwell you take two at a time","a song stuck halfway",
+    "a recipe with one missing step","a name on the tip of your tongue","a door left unlocked on purpose",
+    "the second half of a conversation","a coat you haven't worn in two years"
+  ];
+  const SPEEDS = [
+    "slowly, then all at once","like it owes you something","at the pace of a slow song",
+    "like a Sunday that thinks it's a Monday","at half-speed","like it knows you're watching",
+    "in stops and starts, like a sentence being edited in real time","like a tide that's politely on its way out",
+    "like a phone on silent in another room","faster than yesterday, slower than tomorrow",
+    "like a long walk with someone you used to call every day","like a movie that respects you"
+  ];
+  const TENDENCIES = [
+    "start quietly and pick up","front-load","ask things of you","reward the second attempt",
+    "work in your favor if you go first","reveal themselves only after dinner",
+    "go better when you skip the warm-up","change shape around 3pm",
+    "be honest with you in the morning and theatrical by night","favor the people you call first",
+    "demand one small bravery", "open up if you stop trying to optimize them"
+  ];
+  const TIMES = [
+    "10am","noon","3pm","you check your phone for the first time","you talk to the first person who is not yourself",
+    "you finish your coffee","you remember you have lunch plans","you leave your apartment",
+    "the first call comes in","the second song on shuffle starts"
+  ];
+  const DONTS = [
+    "explain yourself twice","accept the first offer","wait for permission","reread the message",
+    "start a new thing","finish someone else's sentence",
+    "say yes before sleeping on it","apologize for taking the space",
+    "pick up unknown numbers","compare this week to last week","check the same app twice in an hour","speak first in the harder conversation"
+  ];
 
   const DAILY_BODIES = [
     "There is one thing in your inbox you've been avoiding. Open it before lunch — the version of you that handles it today is not the version you'll be by Friday.",
@@ -251,7 +279,25 @@ const Kismet = (() => {
     "You are owed a small piece of joy today. It will not look the way you expected. Don't be the person who refuses dessert because they ordered the soup.",
     "There's a yes living in your throat that you've been holding for someone who deserves a no. Today is not the day for either. Today is the day to notice which is which.",
     "An old version of yourself is going to show up uninvited today. Be kind to them. They got you here. Then close the door.",
-    "Stop checking. The thing you're checking for cannot arrive until you stop. This is mathematically true for you specifically."
+    "Stop checking. The thing you're checking for cannot arrive until you stop. This is mathematically true for you specifically.",
+    "Your nervous system is asking for a slower day than your calendar is offering. Steal twenty minutes back, even badly. The day rearranges itself around the steal.",
+    "Today's the kind of day that punishes the half-effort more than the full one. Either commit, or skip — the middle costs the most.",
+    "A compliment you almost gave someone today, you should give. They have been waiting longer than they would tell you. It will land harder than you expect.",
+    "The conversation you've been rehearsing? You will not need most of it. Say the first sentence and stop. They already know.",
+    "Someone is going to apologize to you today, sideways. You don't have to translate it for them, but you can accept it on its face. That's the win.",
+    "The thing you keep meaning to throw out is the thing keeping a corner of your week loud. Throw it out before 6pm. The room rearranges itself.",
+    "You are allowed to be the first person to text. We've checked. It does not mean what you think it means in their head.",
+    "Today rewards specific. Vague is the enemy. If you can name the thing in one sentence, you can move it in one move.",
+    "The number for today says: <em>%NUM% wants you to leave on time.</em> Whatever it is. Leave when you said you'd leave.",
+    "You'll be tempted to handle a feeling by reorganizing your apartment. Permitted. Just don't also start a new diet.",
+    "If something is hard today, it's not because you're broken. It's because it's hard. That sentence does not get spoken enough to you.",
+    "The first message you re-write today, send the first version of. The first version is closer to true.",
+    "A name is going to come up today that you weren't expecting. The way you feel when it does is the answer. Listen to the half-second before the thought.",
+    "Don't make the call to your mother today. Or do. Either way, the choice itself is the work. Choose, don't drift.",
+    "%WEEKDAY% reading: the part of your day you've been calling boring is the part keeping you sane. Defend it from people who don't have it.",
+    "Today's friction is a feature, not a bug. Whatever's hard is teaching the muscle. By next week the same thing will feel like nothing.",
+    "Drink water before noon. We don't know why we're telling you this. The chart insists.",
+    "You don't have to forgive them today. You can put the forgiveness on a shelf and walk past it for as long as you need."
   ];
 
   // Build YYYY-MM-DD in the user's LOCAL timezone (not UTC) so daily readings

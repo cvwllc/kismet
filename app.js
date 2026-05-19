@@ -337,7 +337,13 @@ function renderDashboard() {
   const today = new Date();
   document.getElementById('dash-date').textContent =
     today.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
-  document.getElementById('dash-sig').textContent = `${sig.glyph} № ${sig.soulNumber}`;
+
+  // Daily card brand elements
+  const cornerEl = document.getElementById('dash-sig-corner');
+  if (cornerEl) cornerEl.textContent = `${sig.glyph} NR.${sig.sigNum}`;
+  const archEl = document.getElementById('dash-archetype');
+  if (archEl) archEl.textContent = sig.archetype;
+  document.getElementById('dash-sig').textContent = `№ ${sig.soulNumber} · ${sig.element}`;
 
   const daily = Kismet.generateDailyReading(sig, today);
   document.getElementById('dash-headline').textContent = daily.headline;
@@ -468,9 +474,9 @@ function runCompat() {
 
 /* ----- SHARE + SCREENSHOT ------------------------------------------ */
 
-async function renderCardToBlob() {
+async function renderCardToBlob(elId = 'reading-card') {
   if (typeof html2canvas === 'undefined') return null;
-  const card = document.getElementById('reading-card');
+  const card = document.getElementById(elId);
   if (!card) return null;
   const canvas = await html2canvas(card, {
     backgroundColor: null,
@@ -481,28 +487,25 @@ async function renderCardToBlob() {
   return new Promise(resolve => canvas.toBlob(resolve, 'image/png', 0.95));
 }
 
-function _fileName() {
+function _fileName(suffix = 'signature') {
   const n = (state.name || 'kismet').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  return `kismet-${n || 'signature'}.png`;
+  return `kismet-${n || 'card'}-${suffix}.png`;
 }
 
-async function saveCard() {
+async function _saveCardEl(elId, suffix, title) {
   const sig = state.signature;
   if (!sig) return;
-  burst(event && event.target);
   toast("Painting the card…");
   try {
-    const blob = await renderCardToBlob();
+    const blob = await renderCardToBlob(elId);
     if (!blob) { toast("Try a screenshot — saver didn't load"); return; }
 
-    const fileName = _fileName();
+    const fileName = _fileName(suffix);
     const file = new File([blob], fileName, { type: 'image/png' });
 
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: 'My Kismet Signature' });
-        return;
-      } catch(e) { /* user canceled — fall through to download */ }
+      try { await navigator.share({ files: [file], title }); return; }
+      catch(e) { /* canceled — fall through to download */ }
     }
 
     const url = URL.createObjectURL(blob);
@@ -516,35 +519,51 @@ async function saveCard() {
   }
 }
 
-async function shareCard() {
+async function _shareCardEl(elId, suffix, title, text) {
   const sig = state.signature;
   if (!sig) return;
-  burst(event && event.target);
   const url = 'https://kismet.cards';
-  const text = `I'm ${sig.archetype} on Kismet — "${sig.tag}". Find yours:`;
-
-  // Try sharing the image directly first (best for TikTok/Insta uploads)
   try {
-    const blob = await renderCardToBlob();
+    const blob = await renderCardToBlob(elId);
     if (blob && navigator.canShare) {
-      const file = new File([blob], _fileName(), { type: 'image/png' });
+      const file = new File([blob], _fileName(suffix), { type: 'image/png' });
       if (navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], title: 'My Kismet Signature', text: `${text} ${url}` });
-          return;
-        } catch(e) { /* canceled or unsupported — fall through */ }
+        try { await navigator.share({ files: [file], title, text: `${text} ${url}` }); return; }
+        catch(e) { /* canceled or unsupported — fall through */ }
       }
     }
   } catch(e){}
-
-  // Text/URL share fallback
   if (navigator.share) {
-    try { await navigator.share({ title: 'My Kismet Signature', text, url }); return; }
+    try { await navigator.share({ title, text, url }); return; }
     catch(e){}
   }
-
   try { await navigator.clipboard.writeText(`${text} ${url}`); toast("Link copied — paste anywhere"); }
   catch(e) { toast("Long-press the card to save"); }
+}
+
+async function saveCard() {
+  burst(event && event.target);
+  return _saveCardEl('reading-card', 'signature', 'My Kismet Signature');
+}
+
+async function shareCard() {
+  const sig = state.signature; if (!sig) return;
+  burst(event && event.target);
+  return _shareCardEl('reading-card', 'signature', 'My Kismet Signature',
+    `I'm ${sig.archetype} on Kismet — "${sig.tag}". Find yours:`);
+}
+
+async function saveDailyCard() {
+  burst(event && event.target);
+  return _saveCardEl('today-card', 'daily', 'My Kismet Daily Reading');
+}
+
+async function shareDailyCard() {
+  const sig = state.signature; if (!sig) return;
+  burst(event && event.target);
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+  return _shareCardEl('today-card', 'daily', 'My Kismet Daily Reading',
+    `My Kismet reading for ${today} — find yours:`);
 }
 
 /* ----- PAYMENT (Stripe Checkout) ----------------------------------- */
